@@ -55,8 +55,12 @@ browser:
 
 # ---------------------------------------------------------------- 浏览器搜索（不使用搜索API）
 search:
-  engines: [bing, baidu, sogou] # 引擎顺序；被拦截/返回无关结果时自动换下一个
+  # 引擎顺序（可选 duckduckgo / bing / baidu / sogou）。默认优先 DuckDuckGo；
+  # 被拦截、网络不可达或返回无关结果时自动换下一个。中国大陆网络访问 DuckDuckGo 通常需要设置 browser.proxy。
+  engines: [duckduckgo, bing, baidu, sogou]
+  strategy: priority            # priority：总是先用第一个，失败才换；rotate：每次查询轮换起始引擎分散负载
   engine_cooldown_s: 600        # 被验证码拦截后的冷却时间（秒）
+  unreachable_cooldown_s: 300   # 网络不可达后的冷却时间（秒），避免每次都等超时
   results_per_query: 8
 
 # ---------------------------------------------------------------- 单个任务的上限

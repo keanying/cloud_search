@@ -22,7 +22,7 @@ def test_example_config_is_valid(tmp_path, monkeypatch):
     monkeypatch.setenv("CS_CONFIG_FILE", str(tmp_path / "config.yaml"))
     s = _settings()
     assert s.database_url.startswith("sqlite+aiosqlite:///") and s.database_url.endswith("backend/data/cloudsearch.db")
-    assert s.server_port == 8000 and s.embedded_worker is True and s.search_engines == ["bing", "baidu", "sogou"]
+    assert s.server_port == 8000 and s.embedded_worker is True and s.search_engines == ["duckduckgo", "bing", "baidu", "sogou"]
 
 
 def test_mysql_section_and_env_override(tmp_path, monkeypatch):

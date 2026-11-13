@@ -12,6 +12,7 @@ import re
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlsplit
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,7 +21,7 @@ from ..agents import analyst, coordinator, extractor, report_writer, search_plan
 from ..agents.browser_researcher import read_source
 from ..agents.coordinator import MAX_EXTRA_WAVES
 from ..browser.pool import get_pool
-from ..contracts import EvidenceRef, SourceDoc, TaskSpec
+from ..contracts import EvidenceRef, SearchHit, SearchQuery, SourceDoc, TaskSpec
 from ..core.config import get_settings
 from ..core.ids import iso, new_id, sha256_bytes, utcnow
 from ..core.storage import get_storage
@@ -87,6 +88,8 @@ class Pipeline:
         self.sources: dict[str, SourceInfo] = {}
         self.read_urls: set[str] = set()
         self.used_queries: list[str] = []
+        self.intent: str = spec.requirement_text
+        self.preferred_sources: list[str] = []
         self.findings: list[EvidenceRef] = []
         self.records: list[dict] = []
         self.blocked = 0
@@ -110,8 +113,10 @@ class Pipeline:
         await self._stage("plan")
         planned = await self.ctx.step("plan", self._plan_fn, agent_role="search_planner",
                                       input_json={"limits": self.spec.limits.model_dump()})
-        queries: list[str] = planned["queries"]
-        await self._stage("plan", "done", queries=len(queries) if not self.used_queries else 0)
+        self.intent = planned.get("intent") or self.spec.requirement_text
+        self.preferred_sources = planned.get("preferred_sources", [])
+        queries = [self._as_query(q) for q in planned["queries"]]
+        await self._stage("plan", "done", queries=len(queries))
 
         pool = get_pool()
         settings = get_settings()
@@ -139,7 +144,8 @@ class Pipeline:
                 if extra:
                     await self._inc(queries=len(extra))
                     extra_limit = min(4, max(2, self.spec.limits.max_sources // 2))
-                    await self._wave(2, extra, extra_limit, get_sessions, settings.task_read_concurrency)
+                    await self._wave(2, [self._as_query(q) for q in extra], extra_limit, get_sessions,
+                                     settings.task_read_concurrency)
                 await self._stage("coverage", "done" if extra else "skipped")
         await update_progress(self.ctx.task_id, browser_available=True)  # 会话已关闭，保留最后帧供查看
 
@@ -220,19 +226,29 @@ class Pipeline:
         self._next_n = (mx or 0) + 1
 
     # ------------------------------------------------------------ 波次：搜索 → 读取 → 抽取
-    async def _wave(self, w: int, queries: list[str], limit: int, get_sessions, concurrency: int) -> None:
-        self.used_queries += queries
+    def _as_query(self, q) -> SearchQuery:
+        """兼容旧格式（纯字符串）与新格式（SearchQuery 字典）。"""
+        if isinstance(q, SearchQuery):
+            return q
+        if isinstance(q, dict):
+            return SearchQuery.model_validate(q)
+        lang = "zh" if self.spec.scope.language.startswith("zh") else "en"
+        return SearchQuery(query=str(q), language=lang)
+
+    async def _wave(self, w: int, queries: list[SearchQuery], limit: int, get_sessions, concurrency: int) -> None:
+        self.used_queries += [q.query for q in queries]
         await self._stage("search")
         main = (await get_sessions(1))[0]
-        searched = await self.ctx.step(f"search:w{w}", lambda c: self._search_fn(c, main, queries),
-                                       node_kind="browser", input_json={"queries": queries})
+        searched = await self.ctx.step(f"search:w{w}", lambda c: self._search_fn(c, main, queries, refine=(w == 1)),
+                                       node_kind="browser",
+                                       input_json={"queries": [q.model_dump() for q in queries]})
         self.blocked_engines.update(searched.get("blocked_engines", []))
+        self.used_queries += searched.get("refined_queries", [])
         hits = [h for h in searched["hits"] if normalize_url(h["url"]) not in self.read_urls]
-        await self._stage("search", "done", candidates=len(searched["hits"]) if w == 1 else len(hits))
+        await self._stage("search", "done", candidates=len(searched["hits"]) if w == 1 else len(hits),
+                          queries=len(searched.get("refined_queries", [])))
 
-        from ..contracts import SearchHit
-
-        picked = rank_hits([SearchHit(**{k: h[k] for k in SearchHit.model_fields}) for h in hits], limit)
+        picked = await self._pick(w, hits, limit)
         cand_by_url = {h["url"]: h["candidate_id"] for h in hits}
         if not picked:
             return
@@ -241,7 +257,7 @@ class Pipeline:
         sessions = await get_sessions(max(1, min(concurrency, len(picked))))
         queue: asyncio.Queue = asyncio.Queue()
         for h in picked:
-            queue.put_nowait((cand_by_url[h.url], h))
+            queue.put_nowait((cand_by_url[h["url"]], SearchHit(**{k: h[k] for k in SearchHit.model_fields})))
 
         async def reader(sess):
             while True:
@@ -309,12 +325,35 @@ class Pipeline:
 
     # ------------------------------------------------------------ 节点实现
     async def _plan_fn(self, c: TaskExecContext) -> StepResult:
-        queries = await search_planner.plan_queries(self.spec, c)
-        return StepResult({"queries": queries})
+        plan = await search_planner.plan_queries(self.spec, c)
+        return StepResult({"intent": plan.intent, "key_entities": plan.key_entities,
+                           "preferred_sources": plan.preferred_sources,
+                           "queries": [q.model_dump() for q in plan.queries]})
 
-    async def _search_fn(self, c: TaskExecContext, sess, queries: list[str]) -> StepResult:
+    async def _search_fn(self, c: TaskExecContext, sess, queries: list[SearchQuery], *, refine: bool) -> StepResult:
         report = await browser_search(sess, queries, exclude_domains=self.spec.scope.exclude_domains,
                                       before_each=c.check)
+        refined: list[str] = []
+        # 无结果 / 结果全部无关的查询：参考实际返回改写一次再搜（仅第一轮，最多 3 条）
+        weak = [q.query for q in queries if report.hit_counts.get(q.query, 0) == 0]
+        if refine and weak:
+            titles = {q: [h.title or "" for h in report.hits if h.query == q] for q in weak}
+            try:
+                new_qs = await search_planner.refine_queries(self.spec, self.intent, [(q, titles[q]) for q in weak],
+                                                             self.used_queries, c)
+            except CONTROL_EXC:
+                raise
+            except Exception as e:  # noqa: BLE001  改写失败不影响已有结果
+                log.warning("refine queries failed: %s", e)
+                new_qs = []
+            if new_qs:
+                extra = await browser_search(sess, new_qs, exclude_domains=self.spec.scope.exclude_domains,
+                                             before_each=c.check)
+                seen = {normalize_url(h.url) for h in report.hits}
+                report.hits += [h for h in extra.hits if normalize_url(h.url) not in seen]
+                report.per_query.update(extra.per_query)
+                report.blocked_engines += extra.blocked_engines
+                refined = [q.query for q in new_qs]
         hits = []
         rows = []
         for h in report.hits:
@@ -333,8 +372,40 @@ class Pipeline:
                     existing.add(r.url_hash)
                     s.add(r)
 
-        return StepResult({"hits": hits, "per_query": report.per_query,
+        return StepResult({"hits": hits, "per_query": report.per_query, "refined_queries": refined,
                            "blocked_engines": sorted(set(report.blocked_engines))}, persist)
+
+    async def _pick(self, w: int, hits: list[dict], limit: int) -> list[dict]:
+        """选择要读取的候选：候选多于上限时由搜索规划智能体按意图与权威性挑选；失败则按排名+权威站点加权。"""
+        if not hits:
+            return []
+        objs = [SearchHit(**{k: h[k] for k in SearchHit.model_fields}) for h in hits]
+
+        def fallback() -> list[dict]:
+            pref = set(self.preferred_sources) | {d.lower() for d in self.spec.scope.include_domains}
+            ranked = rank_hits(objs, len(objs))
+            ranked.sort(key=lambda h: 0 if any((urlsplit(h.url).hostname or "").endswith(d) for d in pref) else 1)
+            by_url = {h["url"]: h for h in hits}
+            return [by_url[h.url] for h in ranked[:limit]]
+
+        if len(hits) <= limit:
+            return fallback()
+
+        async def select_fn(c: TaskExecContext) -> StepResult:
+            picked = await search_planner.select_candidates(self.spec, self.intent, objs, limit, c)
+            return StepResult({"candidate_ids": [hits[i]["candidate_id"] for i, _ in picked],
+                               "reasons": [r for _, r in picked]})
+
+        try:
+            out = await self.ctx.step(f"select:w{w}", select_fn, agent_role="search_planner")
+        except CONTROL_EXC:
+            raise
+        except Exception as e:  # noqa: BLE001
+            log.warning("candidate selection failed, falling back to ranking: %s", e)
+            return fallback()
+        by_id = {h["candidate_id"]: h for h in hits}
+        chosen = [by_id[cid] for cid in out["candidate_ids"] if cid in by_id]
+        return chosen or fallback()
 
     async def _read_fn(self, c: TaskExecContext, sess, candidate_id: str, url: str) -> StepResult:
         goal = "；".join(self.spec.scope.questions) or self.spec.requirement_text

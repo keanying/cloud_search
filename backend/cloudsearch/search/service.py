@@ -12,8 +12,8 @@ from urllib.parse import urlsplit, urlunsplit
 
 from ..browser.pool import CloudBrowserSession
 from ..core.config import get_settings
-from ..contracts import SearchHit
-from .engines import ENGINES, EngineBlocked, looks_relevant
+from ..contracts import SearchHit, SearchQuery
+from .engines import ENGINES, EngineBlocked, is_network_error, looks_relevant
 
 log = logging.getLogger(__name__)
 
@@ -28,8 +28,8 @@ class EngineHealth:
         now = time.monotonic()
         return [n for n in names if n in ENGINES and self._blocked_until.get(n, 0) <= now]
 
-    def block(self, name: str) -> None:
-        self._blocked_until[name] = time.monotonic() + get_settings().search_engine_cooldown_s
+    def block(self, name: str, seconds: float | None = None) -> None:
+        self._blocked_until[name] = time.monotonic() + (seconds or get_settings().search_engine_cooldown_s)
 
     def reset(self) -> None:
         self._blocked_until.clear()
@@ -48,48 +48,60 @@ def normalize_url(url: str) -> str:
 class SearchReport:
     hits: list[SearchHit] = field(default_factory=list)
     per_query: dict[str, str] = field(default_factory=dict)  # query -> engine 或失败原因
+    hit_counts: dict[str, int] = field(default_factory=dict)  # query -> 去重后新增的结果数
     blocked_engines: list[str] = field(default_factory=list)
+    unreachable_engines: list[str] = field(default_factory=list)
 
 
-async def browser_search(s: CloudBrowserSession, queries: list[str], *, per_query: int | None = None,
+async def browser_search(s: CloudBrowserSession, queries: list[str | SearchQuery], *, per_query: int | None = None,
                          exclude_domains: list[str] | None = None,
                          before_each: Callable[[], Awaitable[None]] | None = None) -> SearchReport:
+    """按配置的引擎顺序搜索。strategy=priority：总是先用第一个可用引擎，失败/被拦截/结果无关才换下一个；
+    strategy=rotate：每个查询轮换起始引擎以分散负载。"""
     settings = get_settings()
     per_query = per_query or settings.search_results_per_query
     exclude = [d.lower().lstrip(".") for d in (exclude_domains or [])]
     report = SearchReport()
     seen: set[str] = set()
-    for qi, query in enumerate(queries):
+    for qi, raw in enumerate(queries):
+        sq = raw if isinstance(raw, SearchQuery) else SearchQuery(query=raw)
         if before_each:
             await before_each()  # 栅栏检查：停止后不再发起新搜索
         engines = health.available(settings.search_engines)
         if not engines:
-            report.per_query[query] = "所有搜索引擎暂时不可用（被拦截冷却中）"
+            report.per_query[sq.query] = "所有搜索引擎暂时不可用（被拦截或网络不可达，冷却中）"
+            report.hit_counts[sq.query] = 0
             continue
-        # 轮换起点，分散负载
-        engines = engines[qi % len(engines):] + engines[: qi % len(engines)]
+        if settings.search_strategy == "rotate":
+            engines = engines[qi % len(engines):] + engines[: qi % len(engines)]
         got: list[SearchHit] = []
         for name in engines:
             try:
                 async with s.lock:
-                    got = await ENGINES[name].search(s, query, per_query)
+                    got = await ENGINES[name].search(s, sq.query, per_query, lang=sq.language, recency=sq.recency)
             except EngineBlocked:
                 health.block(name)
                 report.blocked_engines.append(name)
                 log.warning("search engine %s blocked; cooling down", name)
                 continue
             except Exception as e:  # noqa: BLE001
-                log.warning("search engine %s failed: %s", name, e)
+                if is_network_error(e):
+                    health.block(name, settings.search_unreachable_cooldown_s)
+                    report.unreachable_engines.append(name)
+                    log.warning("search engine %s unreachable (%s); cooling down", name, str(e)[:120])
+                else:
+                    log.warning("search engine %s failed: %s", name, e)
                 continue
-            if got and not looks_relevant(query, got):
-                log.warning("search engine %s returned irrelevant results for %r; trying next", name, query)
+            if got and not looks_relevant(sq.query, got):
+                log.warning("search engine %s returned irrelevant results for %r; trying next", name, sq.query)
                 got = []
                 continue
             if got:
-                report.per_query[query] = name
+                report.per_query[sq.query] = name
                 break
         if not got:
-            report.per_query.setdefault(query, "无结果")
+            report.per_query.setdefault(sq.query, "无结果")
+        added = 0
         for h in got:
             host = (urlsplit(h.url).hostname or "").lower()
             if any(host == d or host.endswith("." + d) for d in exclude):
@@ -99,6 +111,8 @@ async def browser_search(s: CloudBrowserSession, queries: list[str], *, per_quer
                 continue
             seen.add(key)
             report.hits.append(h)
+            added += 1
+        report.hit_counts[sq.query] = added
         await asyncio.sleep(random.uniform(1.0, 2.5))  # 礼貌间隔
     return report
 

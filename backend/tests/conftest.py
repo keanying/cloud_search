@@ -75,17 +75,35 @@ class FakeLLM:
     compiler_outputs: list[dict] = field(default_factory=list)
     writer_markdown: str = "故宫每周一闭馆[1]。这是一句不存在来源的引用[9]。"
     gate: asyncio.Event | None = None  # 设定后，report_writer 调用前会等待
+    prompts: dict[str, list[str]] = field(default_factory=dict)
+    # search_planner：计划 / 筛选 / 改写 三种输出
+    plan_output: dict = field(default_factory=lambda: {
+        "intent": "了解故宫开放时间", "key_entities": ["故宫博物院"], "preferred_sources": ["dpm.org.cn"],
+        "queries": [{"query": "故宫 开放时间", "purpose": "开放时间", "language": "zh"}]})
+    select_indices: list[int] | None = None  # None = 全选
+    refine_output: list[dict] = field(default_factory=list)
 
     def _model(self, role: str, builder):
         async def fn(messages, info: AgentInfo):
             self.calls[role] = self.calls.get(role, 0) + 1
             prompt = "\n".join(str(getattr(p, "content", "")) for m in messages for p in getattr(m, "parts", []))
-            args = builder(prompt)
+            props = info.output_tools[0].parameters_json_schema.get("properties", {}) if info.output_tools else {}
+            self.prompts.setdefault(role, []).append(prompt)
+            args = builder(prompt, props) if role == "search_planner" else builder(prompt)
             if role == "report_writer" and self.gate is not None:
                 await self.gate.wait()
             return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, args)])
 
         return FunctionModel(fn)
+
+    def _planner(self, prompt: str, props: dict) -> dict:
+        if "selected" in props:
+            n = len([ln for ln in prompt.split("候选（编号", 1)[-1].splitlines() if " | " in ln])
+            idx = list(range(n)) if self.select_indices is None else self.select_indices
+            return {"selected": [{"index": i, "reason": "相关"} for i in idx]}
+        if "intent" in props:
+            return self.plan_output
+        return {"queries": self.refine_output}
 
     def install(self):
         from cloudsearch.llm.registry import set_model_override
@@ -114,7 +132,7 @@ class FakeLLM:
 
         roles = {
             "requirement_compiler": compiler,
-            "search_planner": lambda p: {"queries": [{"query": "故宫 开放时间", "purpose": "开放时间"}]},
+            "search_planner": self._planner,
             "coordinator": lambda p: {"sufficient": True, "missing_aspects": [], "extra_queries": []},
             "browser_researcher": lambda p: {"action": "finish", "reason": "ok"},
             "extractor": extractor,
@@ -144,6 +162,8 @@ PAGES = {
 class FakeBrowser:
     read_gate: asyncio.Event | None = None
     reads: list[str] = field(default_factory=list)
+    queries: list = field(default_factory=list)       # 实际提交的搜索（SearchQuery）
+    empty_queries: set[str] = field(default_factory=set)  # 这些查询返回无结果
 
 
 @pytest.fixture
@@ -154,7 +174,7 @@ def fake_browser(env, monkeypatch):
     from cloudsearch.db.base import session_scope
     from cloudsearch.db.models import BrowserSession
     from cloudsearch.orchestrator import pipeline
-    from cloudsearch.search.service import SearchReport
+    from cloudsearch.search.service import SearchReport, normalize_url
 
     fb = FakeBrowser()
 
@@ -176,12 +196,18 @@ def fake_browser(env, monkeypatch):
 
     async def fake_search(sess, queries, *, per_query=None, exclude_domains=None, before_each=None):
         rep = SearchReport()
-        for q in queries:
+        for raw in queries:
+            q = getattr(raw, "query", raw)
+            fb.queries.append(raw)
             if before_each:
                 await before_each()
-            for i, url in enumerate(PAGES):
+            urls = [] if q in fb.empty_queries else list(PAGES)
+            for i, url in enumerate(urls):
+                if any(normalize_url(url) == normalize_url(h.url) for h in rep.hits):
+                    continue
                 rep.hits.append(SearchHit(engine="fake", query=q, rank=i + 1, url=url, title=f"页面{i + 1}"))
-            rep.per_query[q] = "fake"
+            rep.per_query[q] = "fake" if urls else "无结果"
+            rep.hit_counts[q] = len(urls)
         return rep
 
     async def fake_read(sess, url, *, goal, ctx, allow_interaction=True):

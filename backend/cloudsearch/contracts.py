@@ -79,6 +79,16 @@ class TaskSpec(BaseModel):
 
 
 # ---------------------------------------------------------------- 流水线中间产物
+class SearchQuery(BaseModel):
+    """一条搜索：查询词 + 用途 + 语言 + 时间范围（引擎支持时用于过滤）。"""
+
+    query: str = Field(description="实际提交给搜索引擎的查询词，可含 site: \"精确短语\" -排除词 等语法")
+    purpose: str = Field(default="", description="这条查询要找什么（对应哪个问题/字段）")
+    language: Literal["zh", "en"] = Field(default="zh", description="结果语言/地区：zh 中文，en 英文")
+    recency: Literal["day", "week", "month", "year"] | None = Field(
+        default=None, description="只在用户明确要求最新/近期信息时填写")
+
+
 class SearchHit(BaseModel):
     engine: str
     query: str
