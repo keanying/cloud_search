@@ -48,8 +48,10 @@ def looks_blocked(url: str, title: str, text: str) -> bool:
 
 
 def extract_main_text(html: str, url: str) -> dict:
+    # 仅采用页面元数据中声明的日期（extensive_search=False），不做启发式猜测
     doc = trafilatura.bare_extraction(html, url=url, with_metadata=True, favor_recall=True,
-                                      include_comments=False, include_tables=True)
+                                      include_comments=False, include_tables=True,
+                                      date_extraction_params={"extensive_search": False, "original_date": True})
     if doc is None:
         return {}
     d = doc.as_dict() if hasattr(doc, "as_dict") else dict(doc)

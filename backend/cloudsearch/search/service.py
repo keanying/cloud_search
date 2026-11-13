@@ -13,7 +13,7 @@ from urllib.parse import urlsplit, urlunsplit
 from ..browser.pool import CloudBrowserSession
 from ..core.config import get_settings
 from ..contracts import SearchHit
-from .engines import ENGINES, EngineBlocked
+from .engines import ENGINES, EngineBlocked, looks_relevant
 
 log = logging.getLogger(__name__)
 
@@ -80,6 +80,10 @@ async def browser_search(s: CloudBrowserSession, queries: list[str], *, per_quer
                 continue
             except Exception as e:  # noqa: BLE001
                 log.warning("search engine %s failed: %s", name, e)
+                continue
+            if got and not looks_relevant(query, got):
+                log.warning("search engine %s returned irrelevant results for %r; trying next", name, query)
+                got = []
                 continue
             if got:
                 report.per_query[query] = name

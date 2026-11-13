@@ -41,6 +41,27 @@ def _clean(text: str | None, n: int = 300) -> str | None:
     return text[:n] or None
 
 
+def _grams(text: str) -> set[str]:
+    """中文按二字组、其他按单词切分，用于粗略相关性判断。"""
+    text = text.lower()
+    out = set(re.findall(r"[a-z0-9]{2,}", text))
+    for seg in re.findall(r"[\u4e00-\u9fff]+", text):
+        out.update(seg[i:i + 2] for i in range(len(seg) - 1)) if len(seg) > 1 else out.add(seg)
+    return out
+
+
+def looks_relevant(query: str, hits: list[SearchHit]) -> bool:
+    """诱饵结果检测：前几条结果的标题/摘要与查询完全无交集时视为无效结果页。"""
+    if not hits:
+        return False
+    q = _grams(query)
+    if not q:
+        return True
+    top = hits[:5]
+    matched = sum(1 for h in top if q & _grams(f"{h.title or ''} {h.snippet or ''} {h.url}"))
+    return matched >= max(1, len(top) // 3)
+
+
 class SearchEngine:
     name = "base"
     host = ""
@@ -108,7 +129,7 @@ class BingEngine(SearchEngine):
         await box.type(query, delay=random.randint(40, 90))
         await s.page.keyboard.press("Enter")
         try:
-            await s.page.wait_for_selector("#b_results > li.b_algo", timeout=12000)
+            await s.page.wait_for_selector("#b_results > li.b_algo", state="attached", timeout=12000)
         except Exception:  # noqa: BLE001
             pass
         await s.capture_frame(force=True)
@@ -145,7 +166,7 @@ class BaiduEngine(SearchEngine):
         await s.goto(f"https://www.baidu.com/s?wd={quote_plus(query)}&rn=20", activity=f"百度搜索：{query}",
                      check=False, wait_until="load")
         try:
-            await s.page.wait_for_selector("#content_left", timeout=10000)
+            await s.page.wait_for_selector("#content_left", state="attached", timeout=10000)
         except Exception:  # noqa: BLE001
             pass
         await s.capture_frame(force=True)
