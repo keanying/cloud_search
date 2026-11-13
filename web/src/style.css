@@ -1,0 +1,152 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', ui-sans-serif, system-ui, sans-serif;
+  --color-ink-950: #040c24;
+  --color-ink-900: #071636;
+  --color-ink-800: #0b2152;
+  --color-ink-700: #12306f;
+  --color-brand-300: #93c5fd;
+  --color-brand-400: #60a5fa;
+  --color-brand-500: #3b82f6;
+  --color-brand-600: #2563eb;
+}
+
+@layer base {
+  html,
+  body,
+  #app {
+    height: 100%;
+  }
+  body {
+    @apply font-sans text-slate-100 antialiased;
+    background-color: var(--color-ink-950);
+    background-image:
+      radial-gradient(1200px 600px at 75% -10%, rgba(59, 130, 246, 0.35), transparent 60%),
+      radial-gradient(900px 500px at 0% 20%, rgba(14, 165, 233, 0.18), transparent 60%),
+      radial-gradient(800px 600px at 50% 110%, rgba(37, 99, 235, 0.25), transparent 60%),
+      linear-gradient(180deg, #061334 0%, #04102c 100%);
+    background-attachment: fixed;
+  }
+  ::selection {
+    background: rgba(96, 165, 250, 0.4);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-brand-400);
+    outline-offset: 2px;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.3) transparent;
+  }
+}
+
+@layer components {
+  .glass {
+    @apply rounded-2xl border border-white/10 bg-white/[0.06] shadow-xl shadow-black/20 backdrop-blur-xl;
+  }
+  .glass-strong {
+    @apply rounded-2xl border border-white/10 bg-ink-900/80 shadow-2xl shadow-black/30 backdrop-blur-xl;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-xl px-3.5 py-2 text-sm font-medium transition-colors select-none disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-gradient-to-b from-brand-500 to-brand-600 text-white shadow-lg shadow-brand-600/30 hover:from-brand-400 hover:to-brand-500;
+  }
+  .btn-secondary {
+    @apply btn border border-white/15 bg-white/5 text-slate-100 hover:bg-white/10;
+  }
+  .btn-ghost {
+    @apply btn text-slate-300 hover:bg-white/10 hover:text-white;
+  }
+  .btn-danger {
+    @apply btn border border-rose-400/30 bg-rose-500/15 text-rose-100 hover:bg-rose-500/25;
+  }
+  .btn-sm {
+    @apply px-2.5 py-1 text-xs rounded-lg;
+  }
+  .icon-btn {
+    @apply inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-300 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-40;
+  }
+  .input {
+    @apply w-full rounded-xl border border-white/15 bg-ink-950/60 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-500/30;
+  }
+  .label {
+    @apply mb-1 block text-xs font-medium text-slate-300;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-sm text-slate-200 transition-colors hover:border-brand-400/60 hover:bg-brand-500/15;
+  }
+  .card-title {
+    @apply flex items-center gap-2 text-sm font-semibold text-white;
+  }
+  .muted {
+    @apply text-slate-400;
+  }
+
+  /* 引用标记 */
+  .cite-chip {
+    @apply mx-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-md bg-brand-500/25 px-1 align-super text-[10px] leading-none font-semibold text-brand-300 hover:bg-brand-500/50 hover:text-white;
+  }
+
+  /* Markdown 正文 */
+  .prose-cs {
+    @apply text-[15px] leading-7 text-slate-100 break-words;
+  }
+  .prose-cs p {
+    @apply my-2;
+  }
+  .prose-cs h1,
+  .prose-cs h2,
+  .prose-cs h3,
+  .prose-cs h4 {
+    @apply mt-4 mb-2 font-semibold text-white;
+  }
+  .prose-cs h1 {
+    @apply text-xl;
+  }
+  .prose-cs h2 {
+    @apply text-lg;
+  }
+  .prose-cs h3 {
+    @apply text-base;
+  }
+  .prose-cs ul {
+    @apply my-2 list-disc pl-6;
+  }
+  .prose-cs ol {
+    @apply my-2 list-decimal pl-6;
+  }
+  .prose-cs li {
+    @apply my-0.5;
+  }
+  .prose-cs a {
+    @apply text-brand-300 underline decoration-brand-300/40 underline-offset-2 hover:text-white;
+  }
+  .prose-cs code {
+    @apply rounded bg-white/10 px-1 py-0.5 text-[13px];
+  }
+  .prose-cs pre {
+    @apply my-3 overflow-x-auto rounded-xl bg-black/30 p-3;
+  }
+  .prose-cs pre code {
+    @apply bg-transparent p-0;
+  }
+  .prose-cs blockquote {
+    @apply my-2 border-l-2 border-brand-400/50 pl-3 text-slate-300;
+  }
+  .prose-cs table {
+    @apply my-3 w-full border-collapse text-sm;
+  }
+  .prose-cs th,
+  .prose-cs td {
+    @apply border border-white/10 px-2 py-1 text-left;
+  }
+  .prose-cs th {
+    @apply bg-white/5;
+  }
+  .prose-cs hr {
+    @apply my-4 border-white/10;
+  }
+}
