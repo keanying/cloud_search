@@ -246,7 +246,8 @@ def ensure_venv(force: bool, opts: dict[str, list[str]]) -> None:
     def attempt(index: str) -> bool:
         host = index.split("/")[2]
         if uv:
-            env = {"UV_HTTP_TIMEOUT": "60", "UV_CONCURRENT_DOWNLOADS": "8"}
+            # UV_LINK_MODE=copy：uv 缓存与项目不在同一磁盘（如 C: 与 D:）时无法硬链接，直接复制且不再告警
+            env = {"UV_HTTP_TIMEOUT": "60", "UV_CONCURRENT_DOWNLOADS": "8", "UV_LINK_MODE": "copy"}
             base = [uv, "pip", "install", "--python", str(VENV_PY), "--index-url", index]
             return (run_try(base + ["--require-hashes", "-r", str(req)], env=env)
                     and run_try(base + ["--no-deps", "-e", "."], env=env))
