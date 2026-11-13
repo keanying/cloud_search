@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { Check, Circle, Globe, Library, Loader2, MinusCircle, MoreHorizontal, XCircle } from 'lucide-vue-next'
 import type { ProgressPart, TaskOut } from '@/api/types'
 import { api } from '@/api/client'
@@ -8,6 +8,7 @@ import { useChatStore } from '@/stores/chat'
 import { usePanelStore } from '@/stores/panel'
 import { useToastStore } from '@/stores/toast'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import { useFloating } from '@/lib/useFloating'
 
 const props = defineProps<{ part: ProgressPart }>()
 const chat = useChatStore()
@@ -16,6 +17,8 @@ const toast = useToastStore()
 const menuOpen = ref(false)
 const busy = ref(false)
 const menuRoot = ref<HTMLElement | null>(null)
+const menuEl = ref<HTMLElement | null>(null)
+const { style: menuStyle } = useFloating(menuRoot, menuEl, menuOpen, () => 'top-start')
 
 const task = computed<TaskOut | undefined>(() => chat.tasks[props.part.task_id])
 const status = computed(() => task.value?.task_status ?? props.part.task_status)
@@ -50,11 +53,6 @@ async function run(fn: () => Promise<TaskOut>, okText: string) {
   }
 }
 
-function onDoc(e: MouseEvent) {
-  if (menuRoot.value && !menuRoot.value.contains(e.target as Node)) menuOpen.value = false
-}
-onMounted(() => document.addEventListener('mousedown', onDoc))
-onBeforeUnmount(() => document.removeEventListener('mousedown', onDoc))
 </script>
 
 <template>
@@ -101,7 +99,8 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDoc))
           <Loader2 v-if="busy" class="h-4 w-4 animate-spin" />
           <MoreHorizontal v-else class="h-4 w-4" />
         </button>
-        <div v-if="menuOpen" role="menu" class="glass-strong absolute bottom-full left-0 z-20 mb-1 w-44 p-1">
+        <Teleport to="body">
+        <div v-if="menuOpen" ref="menuEl" role="menu" class="popover-menu w-44" :style="menuStyle">
           <button
             v-if="canPause"
             role="menuitem"
@@ -128,6 +127,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDoc))
             继续补查（新任务）
           </button>
         </div>
+        </Teleport>
       </div>
     </div>
   </div>

@@ -49,6 +49,11 @@
   @apply rounded-2xl border border-white/10 bg-ink-900/80 shadow-2xl shadow-black/30 backdrop-blur-xl;
 }
 
+/* 弹出菜单：渲染到 body 顶层（见 lib/useFloating.ts），不透明背景，避免被毛玻璃卡片遮挡或透出底层内容 */
+@utility popover-menu {
+  @apply z-[1000] rounded-xl border border-white/15 bg-ink-900/95 p-1 shadow-2xl shadow-black/50 backdrop-blur-xl;
+}
+
 @utility btn {
   @apply inline-flex items-center justify-center gap-1.5 rounded-xl px-3.5 py-2 text-sm font-medium transition-colors select-none disabled:cursor-not-allowed disabled:opacity-50;
 }

@@ -1,24 +1,22 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { Check, ChevronDown } from 'lucide-vue-next'
 import type { ModeSelection } from '@/api/types'
 import { MODE_OPTIONS } from '@/lib/format'
+import { useFloating } from '@/lib/useFloating'
 
 const model = defineModel<ModeSelection>({ required: true })
 const props = defineProps<{ placement?: 'top' | 'bottom' }>()
 const open = ref(false)
 const root = ref<HTMLElement | null>(null)
+const menu = ref<HTMLElement | null>(null)
+const { style } = useFloating(root, menu, open, () => (props.placement === 'bottom' ? 'bottom-start' : 'top-end'))
 const current = computed(() => MODE_OPTIONS.find((m) => m.value === model.value) ?? MODE_OPTIONS[0])
 
 function pick(v: ModeSelection) {
   model.value = v
   open.value = false
 }
-function onDoc(e: MouseEvent) {
-  if (root.value && !root.value.contains(e.target as Node)) open.value = false
-}
-onMounted(() => document.addEventListener('mousedown', onDoc))
-onBeforeUnmount(() => document.removeEventListener('mousedown', onDoc))
 </script>
 
 <template>
@@ -35,11 +33,13 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDoc))
       {{ current.label }}
       <ChevronDown class="h-4 w-4 text-slate-400" />
     </button>
+    <Teleport to="body">
     <ul
       v-if="open"
+      ref="menu"
       role="listbox"
-      class="glass-strong absolute z-40 w-64 p-1"
-      :class="props.placement === 'bottom' ? 'top-full mt-2 left-0' : 'bottom-full mb-2 right-0'"
+      class="popover-menu w-64"
+      :style="style"
     >
       <li v-for="m in MODE_OPTIONS" :key="m.value">
         <button
@@ -57,5 +57,6 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDoc))
         </button>
       </li>
     </ul>
+    </Teleport>
   </div>
 </template>
