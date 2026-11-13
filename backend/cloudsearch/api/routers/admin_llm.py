@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...agents.base import ROLE_INFO
 from ...core.ids import new_id
 from ...core.security import encrypt_secret, mask_secret
-from ...db.base import get_session
+from ...db.base import get_session, session_scope
 from ...db.models import AgentModelBinding, LlmModel, LlmProvider
 from ...llm.presets import PROVIDER_PRESETS
 from ...llm.registry import build_model
@@ -40,6 +40,7 @@ def _p_out(p: LlmProvider) -> ProviderOut:
 def _m_out(m: LlmModel, provider_name: str | None) -> ModelOut:
     return ModelOut(model_profile_id=m.model_profile_id, provider_id=m.provider_id, provider_name=provider_name,
                     model_name=m.model_name, display_name=m.display_name, supports_tools=m.supports_tools,
+                    supports_forced_tool_choice=m.supports_forced_tool_choice,
                     supports_json_schema=m.supports_json_schema, supports_json_object=m.supports_json_object,
                     supports_vision=m.supports_vision, context_window_qty=m.context_window_qty,
                     max_output_qty=m.max_output_qty, input_price_minor_amt=m.input_price_minor_amt,
@@ -151,6 +152,11 @@ async def delete_model(model_profile_id: str, _: CurrentUser = Depends(admin_use
 @router.post("/models/{model_profile_id}/test", response_model=ModelTestOut)
 async def test_model(model_profile_id: str, _: CurrentUser = Depends(admin_user),
                      s: AsyncSession = Depends(get_session)):
+    """连通性测试 + 结构化输出测试（与智能体实际调用方式一致；不支持时自动调整能力配置并重试）。"""
+    from pydantic import BaseModel as _BM
+
+    from ...llm.adapt import apply_adaptations, classify
+
     m = await s.get(LlmModel, model_profile_id)
     p = await s.get(LlmProvider, m.provider_id) if m else None
     if m is None or p is None:
@@ -160,11 +166,40 @@ async def test_model(model_profile_id: str, _: CurrentUser = Depends(admin_user)
     try:
         agent = Agent(build_model(m, p), instructions="你是连通性测试助手，只回复“连接正常”。")
         r = await agent.run("测试", usage_limits=UsageLimits(request_limit=1), model_settings={"timeout": 30,
-                                                                                           "max_tokens": 32})
-        return ModelTestOut(ok=True, latency_ms=int((time.monotonic() - started) * 1000), reply=str(r.output)[:200])
+                                                                                           "max_tokens": 64})
+        reply = str(r.output)[:200]
     except Exception as e:  # noqa: BLE001
         return ModelTestOut(ok=False, latency_ms=int((time.monotonic() - started) * 1000),
                             error=f"{type(e).__name__}: {str(e)[:300]}")
+    latency = int((time.monotonic() - started) * 1000)
+
+    class Probe(_BM):
+        status: str
+        number: int
+
+    adaptations: list[str] = []
+    structured_ok, error = False, None
+    for _attempt in range(3):
+        async with session_scope() as db:
+            m2 = await db.get(LlmModel, model_profile_id)
+            p2 = await db.get(LlmProvider, m2.provider_id)
+            model = build_model(m2, p2)
+        try:
+            out = await Agent(model, output_type=Probe, retries=2,
+                              instructions="按要求输出结构化结果：status 填 ok，number 填 42。").run(
+                "开始", usage_limits=UsageLimits(request_limit=4), model_settings={"timeout": 60})
+            structured_ok = out.output.number == 42
+            error = None if structured_ok else "结构化输出内容不符合预期"
+            break
+        except Exception as e:  # noqa: BLE001
+            actions = classify(e)
+            changed = await apply_adaptations(actions, {m.model_name: model_profile_id}) if actions else []
+            if not changed:
+                error = f"结构化输出失败：{type(e).__name__}: {str(e)[:300]}"
+                break
+            adaptations += changed
+    return ModelTestOut(ok=structured_ok, latency_ms=latency, reply=reply, structured_ok=structured_ok,
+                        error=error, adaptations=adaptations)
 
 
 @router.get("/agent-bindings", response_model=list[AgentBindingOut])

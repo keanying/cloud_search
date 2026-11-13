@@ -13,7 +13,8 @@ from sqlalchemy import text
 
 from .api.routers import admin_llm, artifacts, auth, conversations, tasks, viewer
 from .core.config import get_settings
-from .db.base import create_all, dispose_engine, get_engine, session_scope
+from .db.base import dispose_engine, get_engine, session_scope
+from .db.migrate import auto_migrate
 
 os.environ.setdefault("PYDANTIC_AI_NO_BANNER", "1")
 log = logging.getLogger("cloudsearch")
@@ -31,7 +32,7 @@ async def sync_config_to_db() -> None:
 async def lifespan(app: FastAPI):
     s = get_settings()
     if s.auto_create_tables:
-        await create_all()
+        await auto_migrate()  # 自动迁移到最新结构（已是最新时无操作）
     await sync_config_to_db()
     worker_task = None
     worker = None

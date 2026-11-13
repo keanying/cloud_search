@@ -75,19 +75,51 @@ def build_profile(m: LlmModel) -> dict:
         mode = "native"
     else:
         mode = "prompted"
-    return {
+    profile = {
         "supports_tools": m.supports_tools,
         "supports_json_schema_output": m.supports_json_schema,
         "supports_json_object_output": m.supports_json_object,
         "supports_image_input": m.supports_vision,
         "default_structured_output_mode": mode,
     }
+    # 只在明确不支持时覆盖：思考模式常不接受 tool_choice=required，关闭后输出工具以 tool_choice=auto 调用。
+    # 支持时不写入，以保留专用供应方（如 DeepSeek）按模型/是否思考的更精确判断。
+    if not m.supports_forced_tool_choice:
+        profile["supports_forced_tool_choice"] = False
+    return profile
+
+
+def build_provider(p: LlmProvider):
+    """按供应方类型选用 pydantic-ai 专用适配器（处理思考模式、reasoning_content 回传等差异），
+    其余使用通用 OpenAI 兼容适配器。始终使用管理员配置的 base_url。"""
+    from openai import AsyncOpenAI
+
+    api_key = decrypt_secret(p.api_key_cipher) if p.api_key_cipher else "EMPTY"
+    client = AsyncOpenAI(base_url=p.base_url, api_key=api_key)
+    try:
+        if p.provider_type == "deepseek":
+            from pydantic_ai.providers.deepseek import DeepSeekProvider
+
+            return DeepSeekProvider(openai_client=client)
+        if p.provider_type == "moonshot":
+            from pydantic_ai.providers.moonshotai import MoonshotAIProvider
+
+            return MoonshotAIProvider(openai_client=client)
+        if p.provider_type == "dashscope":
+            from pydantic_ai.providers.alibaba import AlibabaProvider
+
+            return AlibabaProvider(openai_client=client)
+        if p.provider_type == "zhipu":
+            from pydantic_ai.providers.zai import ZaiProvider
+
+            return ZaiProvider(openai_client=client)
+    except Exception:  # noqa: BLE001  专用适配器不可用时退回通用适配器
+        pass
+    return OpenAIProvider(openai_client=client)
 
 
 def build_model(m: LlmModel, p: LlmProvider) -> OpenAIChatModel:
-    api_key = decrypt_secret(p.api_key_cipher) if p.api_key_cipher else "EMPTY"
-    provider = OpenAIProvider(base_url=p.base_url, api_key=api_key)
-    return OpenAIChatModel(m.model_name, provider=provider, profile=build_profile(m))
+    return OpenAIChatModel(m.model_name, provider=build_provider(p), profile=build_profile(m))
 
 
 async def _load_profile(session: AsyncSession, profile_id: str) -> tuple[LlmModel, LlmProvider] | None:

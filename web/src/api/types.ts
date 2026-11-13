@@ -350,6 +350,8 @@ export interface ModelIn {
   model_name: string
   display_name: string | null
   supports_tools: boolean
+  /** 是否接受强制工具调用（tool_choice=required）；思考模式模型通常为 false，运行中会自动探测 */
+  supports_forced_tool_choice: boolean
   supports_json_schema: boolean
   supports_json_object: boolean
   supports_vision: boolean
@@ -373,6 +375,10 @@ export interface ModelTestOut {
   latency_ms: number | null
   reply: string | null
   error: string | null
+  /** 结构化输出（智能体实际使用方式）是否可用 */
+  structured_ok?: boolean | null
+  /** 测试中自动调整的能力配置说明 */
+  adaptations?: string[]
 }
 
 export interface AgentBindingIn {

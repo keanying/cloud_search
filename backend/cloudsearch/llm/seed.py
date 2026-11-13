@@ -26,6 +26,8 @@ class ModelCfg(BaseModel, extra="forbid"):
     name: str
     display_name: str | None = None
     supports_tools: bool = True
+    # 留空 = 不覆盖（保留运行中自动探测的结果）；思考模式模型可显式设为 false
+    supports_forced_tool_choice: bool | None = None
     supports_json_schema: bool = False
     supports_json_object: bool = True
     supports_vision: bool = False
@@ -97,6 +99,8 @@ async def sync_llm_config(s: AsyncSession) -> dict[str, int]:
                 s.add(m)
             m.display_name = mc.display_name
             m.supports_tools, m.supports_json_schema = mc.supports_tools, mc.supports_json_schema
+            if mc.supports_forced_tool_choice is not None:
+                m.supports_forced_tool_choice = mc.supports_forced_tool_choice
             m.supports_json_object, m.supports_vision = mc.supports_json_object, mc.supports_vision
             m.context_window_qty, m.max_output_qty = mc.context_window, mc.max_output
             m.input_price_minor_amt, m.output_price_minor_amt = _fen(mc.input_price), _fen(mc.output_price)

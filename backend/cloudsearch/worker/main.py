@@ -8,7 +8,6 @@ import logging
 import signal
 
 from ..core.config import get_settings
-from ..db.base import create_all
 from ..orchestrator.runner import claim_run, execute_run
 from ..services.turns import claim_turn, process_turn
 
@@ -77,8 +76,7 @@ class Worker:
 
 async def _main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    if get_settings().auto_create_tables:
-        await create_all()
+    # 数据库迁移由启动脚本 / API 负责，worker 不做迁移，避免多进程同时迁移
     from ..app import sync_config_to_db
 
     await sync_config_to_db()

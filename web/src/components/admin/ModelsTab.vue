@@ -22,6 +22,7 @@ const form = reactive({
   model_name: '',
   display_name: '',
   supports_tools: true,
+  supports_forced_tool_choice: true,
   supports_json_schema: false,
   supports_json_object: true,
   supports_vision: false,
@@ -50,6 +51,7 @@ function openAdd() {
     model_name: '',
     display_name: '',
     supports_tools: true,
+    supports_forced_tool_choice: true,
     supports_json_schema: false,
     supports_json_object: true,
     supports_vision: false,
@@ -69,6 +71,7 @@ function openEdit(m: ModelOut) {
     model_name: m.model_name,
     display_name: m.display_name ?? '',
     supports_tools: m.supports_tools,
+    supports_forced_tool_choice: m.supports_forced_tool_choice,
     supports_json_schema: m.supports_json_schema,
     supports_json_object: m.supports_json_object,
     supports_vision: m.supports_vision,
@@ -90,6 +93,7 @@ async function save() {
   const common = {
     display_name: form.display_name.trim() || null,
     supports_tools: form.supports_tools,
+    supports_forced_tool_choice: form.supports_forced_tool_choice,
     supports_json_schema: form.supports_json_schema,
     supports_json_object: form.supports_json_object,
     supports_vision: form.supports_vision,
@@ -185,6 +189,9 @@ function price(f: number | null, cur: string) {
       <fieldset class="flex flex-wrap gap-x-5 gap-y-2 text-sm">
         <legend class="label">能力</legend>
         <label class="flex items-center gap-1.5"><input v-model="form.supports_tools" type="checkbox" class="accent-blue-500" /> 工具调用</label>
+        <label class="flex items-center gap-1.5" title="思考模式模型（如 DeepSeek V4、Kimi K2.5+）通常不支持；不确定可保持勾选，首次被拒时会自动关闭">
+          <input v-model="form.supports_forced_tool_choice" type="checkbox" class="accent-blue-500" :disabled="!form.supports_tools" /> 强制工具调用
+        </label>
         <label class="flex items-center gap-1.5"><input v-model="form.supports_json_schema" type="checkbox" class="accent-blue-500" /> 严格 JSON Schema</label>
         <label class="flex items-center gap-1.5"><input v-model="form.supports_json_object" type="checkbox" class="accent-blue-500" /> JSON 模式</label>
         <label class="flex items-center gap-1.5"><input v-model="form.supports_vision" type="checkbox" class="accent-blue-500" /> 图片输入</label>
@@ -231,6 +238,7 @@ function price(f: number | null, cur: string) {
             </div>
             <div class="mt-1 flex flex-wrap gap-1.5 text-[11px]">
               <span v-if="m.supports_tools" class="rounded bg-brand-500/15 px-1.5 py-0.5 text-brand-300">工具调用</span>
+              <span v-if="m.supports_tools && !m.supports_forced_tool_choice" class="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-300" title="思考模式：工具调用改为自动选择">非强制</span>
               <span v-if="m.supports_json_schema" class="rounded bg-brand-500/15 px-1.5 py-0.5 text-brand-300">JSON Schema</span>
               <span v-if="m.supports_json_object" class="rounded bg-brand-500/15 px-1.5 py-0.5 text-brand-300">JSON 模式</span>
               <span v-if="m.supports_vision" class="rounded bg-brand-500/15 px-1.5 py-0.5 text-brand-300">图片输入</span>
@@ -256,9 +264,15 @@ function price(f: number | null, cur: string) {
           :class="results[m.model_profile_id].ok ? 'bg-emerald-500/10 text-emerald-200' : 'bg-rose-500/10 text-rose-200'"
         >
           <template v-if="results[m.model_profile_id].ok">
-            连通成功 · {{ results[m.model_profile_id].latency_ms }} ms · 回复：{{ results[m.model_profile_id].reply }}
+            连通成功 · {{ results[m.model_profile_id].latency_ms }} ms · 结构化输出可用 · 回复：{{ results[m.model_profile_id].reply }}
           </template>
-          <template v-else>测试失败：{{ results[m.model_profile_id].error }}</template>
+          <template v-else>
+            <span v-if="results[m.model_profile_id].reply">连通成功（{{ results[m.model_profile_id].latency_ms }} ms），但</span>
+            测试失败：{{ results[m.model_profile_id].error }}
+          </template>
+          <ul v-if="results[m.model_profile_id].adaptations?.length" class="mt-1 list-disc pl-4 text-amber-200">
+            <li v-for="a in results[m.model_profile_id].adaptations" :key="a">已自动调整：{{ a }}</li>
+          </ul>
         </div>
       </li>
     </ul>

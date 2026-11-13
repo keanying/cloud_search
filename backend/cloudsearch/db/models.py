@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, BigInteger, Boolean, DateTime, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, BigInteger, Boolean, DateTime, Index, Integer, String, Text, UniqueConstraint, true
 from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -84,6 +84,9 @@ class LlmModel(Base, TimestampMixin):
     model_name: Mapped[str] = mapped_column(String(128), comment="供应方模型名，如 deepseek-chat / 豆包接入点ID")
     display_name: Mapped[str | None] = mapped_column(String(128))
     supports_tools: Mapped[bool] = mapped_column(Boolean, default=True)
+    supports_forced_tool_choice: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=true(),
+        comment="是否接受强制工具调用(tool_choice=required)；思考模式模型常不支持，运行中会自动探测并回写")
     supports_json_schema: Mapped[bool] = mapped_column(Boolean, default=False)
     supports_json_object: Mapped[bool] = mapped_column(Boolean, default=True)
     supports_vision: Mapped[bool] = mapped_column(Boolean, default=False)

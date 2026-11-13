@@ -279,6 +279,7 @@ class ModelIn(BaseModel):
     model_name: str
     display_name: str | None = None
     supports_tools: bool = True
+    supports_forced_tool_choice: bool = Field(default=True, description="是否接受强制工具调用；思考模式模型通常为 false")
     supports_json_schema: bool = False
     supports_json_object: bool = True
     supports_vision: bool = False
@@ -293,6 +294,7 @@ class ModelIn(BaseModel):
 class ModelPatch(BaseModel):
     display_name: str | None = None
     supports_tools: bool | None = None
+    supports_forced_tool_choice: bool | None = None
     supports_json_schema: bool | None = None
     supports_json_object: bool | None = None
     supports_vision: bool | None = None
@@ -314,6 +316,8 @@ class ModelTestOut(BaseModel):
     latency_ms: int | None = None
     reply: str | None = None
     error: str | None = None
+    structured_ok: bool | None = Field(default=None, description="结构化输出（智能体实际使用的方式）是否可用")
+    adaptations: list[str] = Field(default_factory=list, description="测试中自动调整的能力配置")
 
 
 class AgentBindingIn(BaseModel):

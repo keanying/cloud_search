@@ -97,6 +97,8 @@ install:
 # 启动时同步进数据库：这里列出的供应方/模型/绑定以本文件为准；页面上另外添加的不受影响。
 # 单价单位：元 / 百万 token。未知可留空（费用记为“未知”，不会记 0）。
 # 能力勾选以供应方文档为准：不支持工具调用的模型请设 supports_tools: false，系统会改用提示词约束输出。
+# 思考模式模型（如 DeepSeek V4、Kimi K2.5+、豆包/千问思考版）通常不接受强制工具调用，可设 supports_forced_tool_choice: false；
+# 不填也可以：首次调用被拒时系统会自动识别、降级重试并记住。
 llm:
   providers: []
   # providers:
@@ -107,6 +109,8 @@ llm:
   #     models:
   #       - name: deepseek-chat
   #         supports_tools: true
+  #       - name: deepseek-v4-flash         # 思考模式模型示例
+  #         supports_forced_tool_choice: false
   #         supports_json_object: true
   #         input_price: 2
   #         output_price: 8

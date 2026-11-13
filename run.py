@@ -353,10 +353,9 @@ def app_config() -> dict:
 
 
 def migrate(cfg: dict) -> None:
-    if cfg["auto_create"]:
-        return
-    step("执行数据库迁移（alembic upgrade head）")
-    run([VENV_PY, "-m", "alembic", "-c", str(ROOT / "backend" / "alembic.ini"), "upgrade", "head"])
+    step("数据库迁移")
+    # 自动识别早期直接建表的库；已是最新时不做任何改动
+    run([VENV_PY, "-m", "cloudsearch.db.migrate"])
 
 
 def port_free(host: str, port: int) -> bool:

@@ -72,11 +72,34 @@ class AgentSpec(Generic[O]):
     request_limit: int = 6
 
 
+MAX_ADAPT_ATTEMPTS = 2  # 能力自适应最多降级重试次数
+
+
 async def run_agent(spec: AgentSpec[O], prompt: str, *, deps: Any = None, ctx: ExecContext | None = None,
                     conversation_id: str | None = None) -> O:
-    """调用一个智能体并返回经校验的结构化输出。"""
-    async with session_scope() as s:
-        resolved = await resolve_model(s, spec.role.value)
+    """调用一个智能体并返回经校验的结构化输出。
+
+    若供应方因“不支持强制工具调用 / 思考模式”等返回 400，会自动降级输出方式、写回模型配置并重试。
+    """
+    from ..llm.adapt import apply_adaptations, classify
+
+    for attempt in range(MAX_ADAPT_ATTEMPTS + 1):
+        async with session_scope() as s:
+            resolved = await resolve_model(s, spec.role.value)
+        try:
+            return await _run_once(spec, prompt, resolved, deps=deps, ctx=ctx, conversation_id=conversation_id)
+        except Exception as e:
+            actions = classify(e)
+            if not actions or not resolved.pricing or attempt == MAX_ADAPT_ATTEMPTS:
+                raise
+            ids = {name: p.model_profile_id for name, p in resolved.pricing.items()}
+            if not await apply_adaptations(actions, ids):
+                raise
+    raise AssertionError("unreachable")
+
+
+async def _run_once(spec: AgentSpec[O], prompt: str, resolved, *, deps: Any, ctx: ExecContext | None,
+                    conversation_id: str | None) -> O:
     if ctx is not None:
         await ctx.check()
         await ctx.ensure_budget()
@@ -97,14 +120,17 @@ async def run_agent(spec: AgentSpec[O], prompt: str, *, deps: Any = None, ctx: E
     try:
         result = await agent.run(prompt, deps=deps, usage_limits=UsageLimits(request_limit=spec.request_limit))
     except Exception as e:
+        rejected = getattr(e, "status_code", None) in (400, 422)
         run.run_status = "failed"
         run.error_desc = f"{type(e).__name__}: {e}"[:2000]
         run.finished_time = utcnow()
-        run.cost_status = "unknown"  # 已发出的请求可能计费，待对账
+        # 参数被拒（400）的请求不计费；其他失败可能已计费，记为未知待对账
+        run.cost_status = "not_billed" if rejected else "unknown"
+        run.cost_minor_amt = 0 if rejected else None
         async with session_scope() as s:
             s.add(run)
         if ctx is not None:
-            await ctx.charge(1, None)
+            await ctx.charge(1, 0 if rejected else None)
         raise
 
     # 按每次实际响应的模型计价（备用模型可能接管）
