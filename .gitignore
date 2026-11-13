@@ -11,3 +11,9 @@ node_modules/
 web/dist/
 # OS
 .DS_Store
+# 运行时（启动脚本/服务器脚本生成）
+.venv/
+.playwright/
+config.yaml
+run/
+logs/

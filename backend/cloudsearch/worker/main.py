@@ -79,10 +79,16 @@ async def _main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     if get_settings().auto_create_tables:
         await create_all()
+    from ..app import sync_config_to_db
+
+    await sync_config_to_db()
     w = Worker()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, w.stop)
+        try:
+            loop.add_signal_handler(sig, w.stop)
+        except NotImplementedError:  # Windows 不支持，Ctrl+C 以 KeyboardInterrupt 结束
+            pass
     try:
         await w.run_forever()
     finally:

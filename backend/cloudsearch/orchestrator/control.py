@@ -59,6 +59,13 @@ async def _new_run(s: AsyncSession, t: Task, resume_from: str | None = None) -> 
 async def create_task(s: AsyncSession, *, project_id: str, user_id: str, conversation_id: str, turn_id: str,
                       user_message_id: str, assistant: Message, spec: TaskSpec, plan_steps: list[str],
                       auto_start: bool, parent_task_id: str | None = None) -> Task:
+    from ..core.config import get_settings
+
+    cfg = get_settings()
+    lim = spec.limits
+    lim.max_sources = min(lim.max_sources, cfg.task_max_sources)
+    lim.max_queries = min(lim.max_queries, cfg.task_max_queries)
+    lim.max_llm_requests = min(lim.max_llm_requests, cfg.task_max_llm_requests)
     t = Task(task_id=new_id("task"), project_id=project_id, created_by_id=user_id, conversation_id=conversation_id,
              parent_task_id=parent_task_id, mode=spec.mode, title=spec.title[:200],
              task_spec=spec.model_dump(mode="json"), plan_hash=sha256_json(spec.model_dump(mode="json")),

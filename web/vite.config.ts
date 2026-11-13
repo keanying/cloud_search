@@ -11,7 +11,8 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': { target: 'http://127.0.0.1:8000', changeOrigin: true },
+      // 后端端口由 run.py --dev 通过 CS_API_PORT 传入（默认 8000）
+      '/api': { target: `http://127.0.0.1:${process.env.CS_API_PORT || 8000}`, changeOrigin: true },
     },
   },
 })

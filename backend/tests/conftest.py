@@ -24,6 +24,7 @@ async def env(tmp_path, monkeypatch):
     monkeypatch.setenv("CS_DATABASE_URL", mysql_url or f"sqlite+aiosqlite:///{tmp_path}/test.db")
     monkeypatch.setenv("CS_STORAGE_DIR", str(tmp_path / "storage"))
     monkeypatch.setenv("CS_EMBEDDED_WORKER", "false")
+    monkeypatch.setenv("CS_CONFIG_FILE", str(tmp_path / "config.yaml"))  # 测试不读取开发者本地 config.yaml
     monkeypatch.setenv("CS_BROWSER_FRAME_INTERVAL_S", "0")
     from cloudsearch.core import config, storage
     from cloudsearch.db import base

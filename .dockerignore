@@ -1,0 +1,11 @@
+.git
+.venv
+.playwright
+config.yaml
+run
+logs
+backend/data
+**/__pycache__
+.pytest_cache
+.ruff_cache
+web

@@ -9,36 +9,76 @@
 - **搜索**：**不使用搜索 API**，由云端浏览器（Playwright + Chromium）打开必应/百度/搜狗搜索页面；遇到验证码自动冷却换引擎，绝不破解
 - **数据库**：MySQL 8（`cloudsearch_app`，表名 `src_opr_*_f` / `src_prd_*_f`）；本地开发可用 SQLite
 
-## 快速开始（本地开发）
+## 需要安装的组件（Windows 开发机）
 
-```bash
-# 后端（首次会自动建 SQLite 表，并在 API 进程内嵌 worker）
-cd backend
-uv sync
-PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers uv run uvicorn cloudsearch.app:app --port 8000   # 已安装 Chromium 时
-# 或先安装浏览器：uv run playwright install chromium
+| 组件 | 版本 | 说明 |
+|---|---|---|
+| **Python** | 3.12 或 3.13（64 位） | https://www.python.org/downloads/ ，安装时勾选 “Add python.exe to PATH” |
+| **Node.js** | 20 或 22 LTS | https://nodejs.org/ ，自带 npm 与 corepack（自动提供 pnpm） |
+| Git | 任意 | 拉取代码 |
+| uv（可选） | 最新 | `pip install uv`，有则按 uv.lock 锁定版本且安装更快；没有则自动用 pip |
+| MySQL 8（可选） | 8.0+ | 本地开发默认用 SQLite，零安装；生产用 MySQL |
+
+以下由启动脚本**自动安装到项目目录内**，无需手动处理：Python 依赖（`cloud_search/.venv`）、Chromium 浏览器（`cloud_search/.playwright`）、前端依赖（`web/node_modules`）与打包产物（`web/dist`）。所有依赖都有 Windows 预编译包，不需要 C/C++ 编译器。
+
+## 一键启动
+
+**Windows**：双击 `start.bat`（或在命令行执行 `start.bat`）。首次会自动：
+
+1. 生成 `config.yaml`（从 `config.example.yaml` 复制）
+2. 在根目录创建 `.venv` 并安装后端依赖
+3. 下载 Chromium 到 `.playwright`
+4. 安装前端依赖并打包
+5. 迁移/创建数据库，启动服务并打开浏览器 → http://127.0.0.1:8000（页面与接口同一端口）
+
+之后再启动会自动跳过已完成的步骤（依赖或前端代码有变化时才重新安装/打包）。macOS/Linux 开发机用 `./start.sh`。
+
+常用参数（`start.bat` 与 `./start.sh` 相同）：
+
+```
+start.bat --dev          前端热更新开发模式（http://127.0.0.1:5173）
+start.bat --no-install   跳过依赖检查，启动更快
+start.bat --rebuild      强制重装依赖并重新打包
+start.bat --port 8001    临时换端口
 ```
 
+国内网络：在 `config.yaml` 的 `install` 分区填写 pip / npm / Playwright 镜像地址（模板里有示例）。
+
+首次使用：**第一个注册的账号是管理员**。在 `config.yaml` 的 `llm` 分区配置大模型（或在页面“管理后台 → 大模型”中添加），至少绑定 `default` 角色即可开始提问。
+
+## 统一配置 config.yaml
+
+所有配置集中在根目录 `config.yaml`（模板 `config.example.yaml`，含逐项中文说明；该文件含密码/API Key，已被 git 忽略）：
+
+| 分区 | 内容 |
+|---|---|
+| `server` | 监听地址与端口 |
+| `database` | `type: sqlite/mysql`、MySQL 连接信息、是否自动建表 |
+| `security` | JWT 密钥、API Key 加密主密钥、是否开放注册 |
+| `browser` / `search` | 云端浏览器（无头、代理、并发）与搜索引擎顺序、冷却 |
+| `task` / `worker` | 单任务上限、执行器（内嵌/独立、进程数、并发） |
+| `storage` | 文件存储目录 |
+| `install` | 安装镜像源（pip / npm / Playwright） |
+| `llm` | 大模型供应方、模型、单价、8 个智能体的模型绑定（启动时同步进数据库） |
+
+优先级：环境变量 `CS_*` > `config.yaml` > 默认值。写错键名会在启动时报错并指出是哪一项。
+
+## 服务器部署（Linux）
+
 ```bash
-# 前端
-cd web
-pnpm install
-pnpm dev     # http://localhost:5173 ，/api 代理到 127.0.0.1:8000
+cp config.example.yaml config.yaml      # 修改：server.host=0.0.0.0、database.type=mysql、security 密钥、worker.embedded=false
+scripts/server.sh setup                 # 安装 .venv / Chromium（root 时连同系统依赖）/ 前端打包 / 数据库迁移
+scripts/server.sh start                 # 启动 API（含页面）与 worker.processes 个独立 worker
+scripts/server.sh status                # 进程、健康接口、数据库、Chromium、磁盘
+scripts/server.sh check                 # 同上，异常时退出码 1（可配合 cron/监控告警）
+scripts/server.sh restart
+scripts/server.sh stop
+scripts/server.sh logs [api|worker]     # 跟踪日志（logs/ 目录）
 ```
 
-1. 打开页面注册账号——**第一个注册的账号是管理员**。
-2. 进入「管理后台 → 大模型」：添加供应方（填 API Key，仅加密保存）→ 添加模型（勾选能力：工具调用 / JSON Schema / JSON 模式，填单价）→ 「智能体绑定」里至少绑定 `default`，也可为 8 个角色分别指定模型和备用模型。
-3. 回到首页直接提问。
+更新代码后：`git pull && scripts/server.sh setup && scripts/server.sh restart`。
 
-## Docker 部署
-
-```bash
-cp .env.example .env   # 修改 CS_SECRET_KEY、CS_MASTER_KEY
-docker compose up -d --build
-# 访问 http://localhost:8080
-```
-
-服务：`mysql`（MySQL 8）、`api`（启动时 `alembic upgrade head`）、`worker`（云端浏览器与智能体执行，可水平扩展）、`web`（nginx，已为 SSE 关闭缓冲）。
+也可用 Docker：`cp config.example.yaml config.yaml && docker compose up -d --build`，访问 http://localhost:8080 。
 
 ## 目录结构
 
@@ -63,6 +103,9 @@ backend/cloudsearch/
   api/                        FastAPI 路由与契约（schemas.py）
   db/                         SQLAlchemy 模型（MySQL 8 / SQLite）
 backend/migrations/           Alembic 迁移
+run.py / start.bat / start.sh 一键启动（环境 + 前端打包 + 运行）
+scripts/server.sh             服务器 启动/停止/重启/检查
+config.example.yaml           统一配置模板（复制为 config.yaml）
 backend/tests/                端到端与单元测试（假模型 + 假浏览器，不触网不计费）
 web/src/                      Vue 3 前端（views / components / stores / api）
 ```
@@ -83,8 +126,7 @@ web/src/                      Vue 3 前端（views / components / stores / api�
 ## 测试
 
 ```bash
-cd backend
-uv run pytest -q                                   # SQLite
+uv run pytest -q                                   # 在仓库根目录执行；SQLite
 CS_TEST_DATABASE_URL="mysql+asyncmy://user:pwd@127.0.0.1:3306/cs_test?charset=utf8mb4" uv run pytest -q   # MySQL 8
 ```
 

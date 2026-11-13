@@ -1,5 +1,6 @@
 # 一键启动：docker compose up -d --build ，然后访问 http://localhost:8080
-# 第一个注册的账号是管理员，在“管理后台 → 大模型”中配置供应方、模型与智能体绑定。
+# 配置：把 config.example.yaml 复制为 config.yaml 并修改（会挂载进容器）；
+#       下面 environment 中的 CS_* 会覆盖 config.yaml 的同名项（数据库地址由 compose 提供）。
 services:
   mysql:
     image: mysql:8.0
@@ -16,26 +17,25 @@ services:
       retries: 30
 
   api:
-    build: ./backend
-    env_file: [.env]
-    environment:
+    build: {context: ., dockerfile: backend/Dockerfile}
+    environment: &cs_env
       CS_DATABASE_URL: mysql+asyncmy://cs:${CS_DB_PASSWORD:-cs_pass}@mysql:3306/cloudsearch_app?charset=utf8mb4
       CS_AUTO_CREATE_TABLES: "false"
       CS_EMBEDDED_WORKER: "false"
       CS_STORAGE_DIR: /data/storage
-    volumes: ["storage:/data/storage"]
+    volumes:
+      - storage:/data/storage
+      - ./config.yaml:/app/config.yaml:ro
     depends_on:
       mysql: {condition: service_healthy}
 
   worker:
-    build: ./backend
+    build: {context: ., dockerfile: backend/Dockerfile}
     command: ["python", "-m", "cloudsearch.worker.main"]
-    env_file: [.env]
-    environment:
-      CS_DATABASE_URL: mysql+asyncmy://cs:${CS_DB_PASSWORD:-cs_pass}@mysql:3306/cloudsearch_app?charset=utf8mb4
-      CS_AUTO_CREATE_TABLES: "false"
-      CS_STORAGE_DIR: /data/storage
-    volumes: ["storage:/data/storage"]
+    environment: *cs_env
+    volumes:
+      - storage:/data/storage
+      - ./config.yaml:/app/config.yaml:ro
     shm_size: 1gb
     depends_on:
       api: {condition: service_started}
