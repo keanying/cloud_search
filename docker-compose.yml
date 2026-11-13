@@ -1,0 +1,50 @@
+# 一键启动：docker compose up -d --build ，然后访问 http://localhost:8080
+# 第一个注册的账号是管理员，在“管理后台 → 大模型”中配置供应方、模型与智能体绑定。
+services:
+  mysql:
+    image: mysql:8.0
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci"]
+    environment:
+      MYSQL_DATABASE: cloudsearch_app
+      MYSQL_USER: cs
+      MYSQL_PASSWORD: ${CS_DB_PASSWORD:-cs_pass}
+      MYSQL_ROOT_PASSWORD: ${CS_DB_ROOT_PASSWORD:-root_pass}
+    volumes: ["mysql-data:/var/lib/mysql"]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1"]
+      interval: 5s
+      retries: 30
+
+  api:
+    build: ./backend
+    env_file: [.env]
+    environment:
+      CS_DATABASE_URL: mysql+asyncmy://cs:${CS_DB_PASSWORD:-cs_pass}@mysql:3306/cloudsearch_app?charset=utf8mb4
+      CS_AUTO_CREATE_TABLES: "false"
+      CS_EMBEDDED_WORKER: "false"
+      CS_STORAGE_DIR: /data/storage
+    volumes: ["storage:/data/storage"]
+    depends_on:
+      mysql: {condition: service_healthy}
+
+  worker:
+    build: ./backend
+    command: ["python", "-m", "cloudsearch.worker.main"]
+    env_file: [.env]
+    environment:
+      CS_DATABASE_URL: mysql+asyncmy://cs:${CS_DB_PASSWORD:-cs_pass}@mysql:3306/cloudsearch_app?charset=utf8mb4
+      CS_AUTO_CREATE_TABLES: "false"
+      CS_STORAGE_DIR: /data/storage
+    volumes: ["storage:/data/storage"]
+    shm_size: 1gb
+    depends_on:
+      api: {condition: service_started}
+
+  web:
+    build: ./web
+    ports: ["8080:80"]
+    depends_on: [api]
+
+volumes:
+  mysql-data:
+  storage:

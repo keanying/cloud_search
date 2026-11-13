@@ -19,7 +19,9 @@ os.environ["PYDANTIC_AI_NO_BANNER"] = "1"
 
 @pytest.fixture
 async def env(tmp_path, monkeypatch):
-    monkeypatch.setenv("CS_DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path}/test.db")
+    # 默认 SQLite；设置 CS_TEST_DATABASE_URL 可在 MySQL 8 上运行同一套测试（每个用例重建表）
+    mysql_url = os.environ.get("CS_TEST_DATABASE_URL")
+    monkeypatch.setenv("CS_DATABASE_URL", mysql_url or f"sqlite+aiosqlite:///{tmp_path}/test.db")
     monkeypatch.setenv("CS_STORAGE_DIR", str(tmp_path / "storage"))
     monkeypatch.setenv("CS_EMBEDDED_WORKER", "false")
     monkeypatch.setenv("CS_BROWSER_FRAME_INTERVAL_S", "0")
@@ -29,6 +31,11 @@ async def env(tmp_path, monkeypatch):
     config.get_settings.cache_clear()
     storage._storage = None
     await base.dispose_engine()
+    if mysql_url:
+        from cloudsearch.db import models  # noqa: F401
+
+        async with base.get_engine().begin() as conn:
+            await conn.run_sync(base.Base.metadata.drop_all)
     await base.create_all()
     yield
     from cloudsearch.llm.registry import clear_model_overrides
