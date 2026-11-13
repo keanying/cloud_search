@@ -134,8 +134,10 @@ class Message(Base, TimestampMixin):
     request_hash: Mapped[str | None] = mapped_column(String(64))
     mode_selection: Mapped[str | None] = mapped_column(ENUM, comment="auto/quick_search/research/dataset/hybrid")
     parts: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
-    message_status: Mapped[str] = mapped_column(ENUM, default="final", comment="pending/final/error")
+    message_status: Mapped[str] = mapped_column(ENUM, default="final", comment="pending/processing/final/error")
     revision_no: Mapped[int] = mapped_column(Integer, default=1)
+    worker_id: Mapped[str | None] = mapped_column(String(64), comment="处理该轮回复的 worker")
+    lease_expire_time: Mapped[datetime | None] = mapped_column(DT)
 
 
 class ConversationEvent(Base):
@@ -324,6 +326,7 @@ class SourceRevision(Base):
     project_id: Mapped[str] = mapped_column(ID)
     task_id: Mapped[str] = mapped_column(ID)
     candidate_id: Mapped[str | None] = mapped_column(ID)
+    source_no: Mapped[int | None] = mapped_column(Integer, comment="任务内来源序号，对应引用 [n]")
     request_url: Mapped[str] = mapped_column(String(2048))
     final_url: Mapped[str | None] = mapped_column(String(2048))
     title: Mapped[str | None] = mapped_column(String(512))
