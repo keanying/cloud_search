@@ -40,17 +40,17 @@ async function submit() {
     <div class="w-full max-w-sm">
       <div class="mb-8 flex flex-col items-center gap-3">
         <BrandLogo :size="56" />
-        <h1 class="text-2xl font-semibold text-white">云搜浏览器</h1>
+        <h1 class="text-[28px] font-bold tracking-tight text-white">云搜浏览器</h1>
         <p class="text-sm text-slate-400">从一个问题开始，让 AI 帮你搜索、整理数据、生成报告</p>
       </div>
-      <form class="glass-strong p-6" @submit.prevent="submit">
-        <div class="mb-5 grid grid-cols-2 rounded-xl bg-white/5 p-1" role="tablist">
+      <form class="glass-strong !rounded-[32px] p-7" @submit.prevent="submit">
+        <div class="sunken hairline mb-6 grid grid-cols-2 rounded-full border p-1" role="tablist">
           <button
             type="button"
             role="tab"
             :aria-selected="tab === 'login'"
-            class="rounded-lg py-1.5 text-sm"
-            :class="tab === 'login' ? 'surface !rounded-lg text-white' : 'text-slate-400'"
+            class="rounded-full py-2 text-sm font-semibold"
+            :class="tab === 'login' ? 'chip-active' : 'text-slate-400'"
             @click="tab = 'login'"
           >
             登录
@@ -59,8 +59,8 @@ async function submit() {
             type="button"
             role="tab"
             :aria-selected="tab === 'register'"
-            class="rounded-lg py-1.5 text-sm"
-            :class="tab === 'register' ? 'surface !rounded-lg text-white' : 'text-slate-400'"
+            class="rounded-full py-2 text-sm font-semibold"
+            :class="tab === 'register' ? 'chip-active' : 'text-slate-400'"
             @click="tab = 'register'"
           >
             注册
@@ -88,7 +88,7 @@ async function submit() {
             />
           </div>
           <p v-if="error" class="text-sm text-rose-300" role="alert">{{ error }}</p>
-          <button type="submit" class="btn-primary w-full" :disabled="busy">
+          <button type="submit" class="btn-primary w-full !py-3" :disabled="busy">
             <Loader2 v-if="busy" class="h-4 w-4 animate-spin" />
             {{ tab === 'login' ? '登录' : '注册并登录' }}
           </button>

@@ -31,11 +31,11 @@ const planOutdated = computed(
 const badge = computed(() => {
   switch (effectiveStatus.value) {
     case 'confirmed':
-      return { text: '已确认', tone: 'success' as const }
+      return { text: '已确认', tone: 'success' as const, emoji: '✅' }
     case 'auto_started':
-      return { text: '已自动开始', tone: 'info' as const }
+      return { text: '已自动开始', tone: 'info' as const, emoji: '⏳' }
     default:
-      return { text: '等待确认', tone: 'warning' as const }
+      return { text: '需要你确认', tone: 'warning' as const, emoji: '✋' }
   }
 })
 
@@ -53,62 +53,65 @@ async function confirm() {
 </script>
 
 <template>
-  <div class="glass p-4">
+  <div class="card-lilac p-5">
     <div class="flex items-start gap-3">
-      <ClipboardList class="mt-0.5 h-5 w-5 shrink-0 text-brand-300" />
+      <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--cs-surface-solid)]">
+        <ClipboardList class="h-4 w-4 accent-ink" />
+      </span>
       <div class="min-w-0 flex-1">
         <div class="flex flex-wrap items-center gap-2">
-          <h3 class="text-base font-semibold text-white">{{ part.title }}</h3>
-          <StatusBadge tone="neutral">{{ modeLabel(part.mode) }}</StatusBadge>
+          <span class="text-xs font-bold tracking-wide accent-ink">执行计划</span>
+          <span class="pill bg-[var(--cs-surface-solid)] text-slate-200">{{ modeLabel(part.mode) }}</span>
           <div class="flex-1" />
-          <StatusBadge :tone="badge.tone">{{ badge.text }}</StatusBadge>
+          <StatusBadge :tone="badge.tone" :emoji="badge.emoji">{{ badge.text }}</StatusBadge>
         </div>
-        <p v-if="part.summary" class="mt-1 text-sm text-slate-300">{{ part.summary }}</p>
+        <h3 class="mt-1 text-[17px] leading-6 font-bold tracking-tight text-white">{{ part.title }}</h3>
+        <p v-if="part.summary" class="mt-1 text-sm text-slate-200">{{ part.summary }}</p>
       </div>
     </div>
 
-    <ol v-if="part.steps?.length" class="mt-3 space-y-2">
-      <li v-for="(s, i) in part.steps" :key="i" class="flex items-start gap-3 text-sm text-slate-200">
-        <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/5 text-xs">
+    <ol v-if="part.steps?.length" class="tile mt-4 space-y-2.5 p-3.5">
+      <li v-for="(s, i) in part.steps" :key="i" class="flex items-start gap-3 text-sm text-slate-100">
+        <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full accent-dot text-xs font-bold text-snow">
           {{ i + 1 }}
         </span>
         <span class="pt-0.5">{{ s }}</span>
       </li>
     </ol>
 
-    <div v-if="part.limits && (part.limits.max_queries || part.limits.max_sources)" class="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
-      <span v-if="part.limits.max_queries" class="rounded-md bg-white/5 px-2 py-1">最多 {{ part.limits.max_queries }} 次搜索</span>
-      <span v-if="part.limits.max_sources" class="rounded-md bg-white/5 px-2 py-1">最多读取 {{ part.limits.max_sources }} 个来源</span>
+    <div v-if="part.limits && (part.limits.max_queries || part.limits.max_sources)" class="mt-3 flex flex-wrap gap-2 text-xs">
+      <span v-if="part.limits.max_queries" class="pill bg-[var(--cs-surface-solid)] text-slate-300">🔎 最多 {{ part.limits.max_queries }} 次搜索</span>
+      <span v-if="part.limits.max_sources" class="pill bg-[var(--cs-surface-solid)] text-slate-300">📄 最多读取 {{ part.limits.max_sources }} 个来源</span>
     </div>
 
     <div v-if="part.fields?.length" class="mt-3">
-      <button class="flex items-center gap-1 text-xs text-slate-400 hover:text-white" :aria-expanded="showFields" @click="showFields = !showFields">
+      <button class="flex items-center gap-1 text-xs font-semibold text-slate-300 hover:text-white" :aria-expanded="showFields" @click="showFields = !showFields">
         <ChevronDown class="h-3.5 w-3.5 transition" :class="showFields ? '' : '-rotate-90'" />
         字段（{{ part.fields.length }}）
       </button>
-      <div v-if="showFields" class="mt-2 overflow-x-auto rounded-xl border border-white/10">
+      <div v-if="showFields" class="mt-2 overflow-x-auto rounded-2xl bg-[var(--cs-surface-solid)]">
         <table class="w-full text-left text-sm">
-          <thead class="bg-white/5 text-xs text-slate-400">
+          <thead class="text-xs text-slate-400">
             <tr>
-              <th class="px-3 py-1.5 font-medium">字段</th>
-              <th class="px-3 py-1.5 font-medium">键</th>
-              <th class="px-3 py-1.5 font-medium">类型</th>
-              <th class="px-3 py-1.5 font-medium">必填</th>
+              <th class="px-3 py-2 font-semibold">字段</th>
+              <th class="px-3 py-2 font-semibold">键</th>
+              <th class="px-3 py-2 font-semibold">类型</th>
+              <th class="px-3 py-2 font-semibold">必填</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="f in part.fields" :key="f.key" class="border-t border-white/5">
-              <td class="px-3 py-1.5 text-slate-100">{{ f.label }}</td>
-              <td class="px-3 py-1.5 font-mono text-xs text-slate-400">{{ f.key }}</td>
-              <td class="px-3 py-1.5 text-slate-300">{{ f.type }}</td>
-              <td class="px-3 py-1.5 text-slate-300">{{ f.required ? '是' : '否' }}</td>
+            <tr v-for="f in part.fields" :key="f.key" class="hairline border-t">
+              <td class="px-3 py-2 text-slate-100">{{ f.label }}</td>
+              <td class="px-3 py-2 font-mono text-xs text-slate-400">{{ f.key }}</td>
+              <td class="px-3 py-2 text-slate-300">{{ f.type }}</td>
+              <td class="px-3 py-2 text-slate-300">{{ f.required ? '是' : '否' }}</td>
             </tr>
           </tbody>
         </table>
       </div>
     </div>
 
-    <p v-if="planOutdated" class="mt-3 text-xs text-amber-300">计划已更新，此版本的确认已失效，请查看最新计划。</p>
+    <p v-if="planOutdated" class="mt-3 text-xs font-medium text-amber-200">计划已更新，此版本的确认已失效，请查看最新计划。</p>
 
     <div v-if="effectiveStatus === 'awaiting_confirmation'" class="mt-4 flex flex-wrap gap-2">
       <button class="btn-primary" :disabled="confirming || planOutdated" @click="confirm">

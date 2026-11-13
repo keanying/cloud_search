@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { ArrowUp, Loader2, Search, Square } from 'lucide-vue-next'
+import { ArrowUp, BookOpen, Database, FileBarChart, Loader2, Search, Square, Zap } from 'lucide-vue-next'
 import type { ModeSelection } from '@/api/types'
 import ModeSelect from '@/components/common/ModeSelect.vue'
+import { MODE_OPTIONS } from '@/lib/format'
 
 const text = defineModel<string>({ required: true })
 const mode = defineModel<ModeSelection>('mode', { required: true })
@@ -54,6 +55,16 @@ function focus() {
   ta.value?.focus()
 }
 defineExpose({ focus })
+
+/** 对话页宽屏：彩色圆形模式按钮 */
+const MODE_STYLE: Record<ModeSelection, { icon: unknown; tone: string; short: string }> = {
+  auto: { icon: Zap, tone: 'butter', short: '智能' },
+  quick_search: { icon: Search, tone: 'sky', short: '搜索问题' },
+  research: { icon: BookOpen, tone: 'lilac', short: '深入研究' },
+  dataset: { icon: Database, tone: 'mint', short: '采集数据' },
+  hybrid: { icon: FileBarChart, tone: 'peach', short: '数据+报告' },
+}
+const MODE_BUTTONS = [...MODE_OPTIONS.filter((m) => m.value !== 'auto'), ...MODE_OPTIONS.filter((m) => m.value === 'auto')]
 </script>
 
 <template>
@@ -82,7 +93,7 @@ defineExpose({ focus })
         <ModeSelect v-model="mode" placement="bottom" />
         <button
           type="button"
-          class="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-b from-brand-500 to-brand-600 text-snow shadow-md shadow-brand-600/30 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+          class="round-btn"
           :disabled="!canSend"
           aria-label="发送"
           @click="submit"
@@ -95,30 +106,49 @@ defineExpose({ focus })
   </div>
   <div
     v-else
-    class="surface relative w-full rounded-2xl p-3 transition-shadow focus-within:ring-2 focus-within:ring-brand-400/30"
+    class="composer-float @container relative w-full rounded-[28px] border p-3 pl-4 transition-shadow focus-within:ring-2 focus-within:ring-slate-400/30"
   >
-    <div v-if="hint" class="mb-2 rounded-lg bg-brand-500/10 px-3 py-1.5 text-xs text-brand-300">{{ hint }}</div>
+    <div v-if="hint" class="mb-2 rounded-2xl card-butter px-3 py-1.5 text-xs font-medium accent-ink">{{ hint }}</div>
     <label class="sr-only" for="cs-composer">输入需求</label>
     <textarea
       id="cs-composer"
       ref="ta"
       v-model="text"
       rows="1"
-      class="block min-h-[24px] w-full resize-none bg-transparent px-1 text-[15px] leading-6 text-white placeholder:text-slate-500 focus:outline-none"
+      class="block min-h-[28px] w-full resize-none bg-transparent px-1 pt-1 text-[16px] leading-7 text-white placeholder:text-slate-500 focus:outline-none"
       :placeholder="placeholder || '描述你的问题，或告诉我想采集哪些数据…'"
       :disabled="disabled"
       @keydown="onKeydown"
       @compositionstart="composing = true"
       @compositionend="composing = false"
     />
-    <div class="mt-2 flex items-center gap-2">
-      <ModeSelect v-model="mode" placement="top" />
-      <span class="hidden text-xs text-slate-500 sm:inline">Enter 发送 · Shift+Enter 换行</span>
+    <div class="mt-2.5 flex items-center gap-1.5">
+      <!-- 宽：彩色模式按钮；窄：下拉 -->
+      <div class="hidden items-center gap-1.5 @2xl:flex" role="radiogroup" aria-label="执行模式">
+        <button
+          v-for="m in MODE_BUTTONS"
+          :key="m.value"
+          type="button"
+          role="radio"
+          :aria-checked="mode === m.value"
+          :title="m.desc"
+          class="mode-btn"
+          :class="mode === m.value ? 'mode-btn-on' : ''"
+          @click="mode = m.value"
+        >
+          <span class="flex h-7 w-7 items-center justify-center rounded-full" :class="`card-${MODE_STYLE[m.value].tone} accent-ink`">
+            <component :is="MODE_STYLE[m.value].icon" class="h-3.5 w-3.5" />
+          </span>
+          {{ MODE_STYLE[m.value].short }}
+        </button>
+      </div>
+      <div class="@2xl:hidden"><ModeSelect v-model="mode" placement="top" /></div>
       <div class="flex-1" />
+      <span v-if="!showStop" class="mr-1 hidden text-xs text-slate-500 @lg:inline">Enter 发送 · Shift+Enter 换行</span>
       <button
         v-if="showStop"
         type="button"
-        class="btn-danger btn-sm"
+        class="btn-danger btn-sm !py-2"
         :disabled="stopping"
         :title="stopHint"
         aria-label="停止当前轮"
@@ -128,16 +158,41 @@ defineExpose({ focus })
         <Square v-else class="h-3.5 w-3.5" />
         {{ stopping ? '正在停止…' : '停止当前轮' }}
       </button>
-      <button
-        type="button"
-        class="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-b from-brand-500 to-brand-600 text-snow shadow-md shadow-brand-600/30 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
-        :disabled="!canSend"
-        aria-label="发送"
-        @click="submit"
-      >
+      <button type="button" class="round-btn" :disabled="!canSend" aria-label="发送" @click="submit">
         <Loader2 v-if="sending" class="h-4 w-4 animate-spin" />
-        <ArrowUp v-else class="h-4 w-4" />
+        <ArrowUp v-else class="h-[18px] w-[18px]" />
       </button>
     </div>
   </div>
 </template>
+
+<style scoped>
+.composer-float {
+  background-color: var(--cs-surface-solid);
+  border-color: var(--cs-line);
+  box-shadow: 0 2px 6px rgba(17, 18, 20, 0.04), 0 18px 40px -22px rgba(17, 18, 20, 0.28);
+}
+.mode-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 9999px;
+  padding: 0.2rem 0.75rem 0.2rem 0.2rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--color-slate-300);
+  border: 1px solid transparent;
+  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+}
+.mode-btn:hover {
+  background-color: color-mix(in srgb, var(--color-white) 5%, transparent);
+  color: var(--color-white);
+}
+.mode-btn-on,
+.mode-btn-on:hover {
+  background-color: var(--cs-surface-sunken);
+  border-color: var(--cs-line-strong);
+  color: var(--color-white);
+}
+</style>

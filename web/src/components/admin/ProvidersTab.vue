@@ -96,7 +96,7 @@ async function remove(p: ProviderOut) {
       <button class="btn-primary btn-sm shrink-0" @click="openAdd"><Plus class="h-3.5 w-3.5" /> 添加供应方</button>
     </div>
 
-    <form v-if="formOpen" class="glass mb-4 space-y-3 p-4" @submit.prevent="save">
+    <form v-if="formOpen" class="glass mb-4 space-y-3 p-6" @submit.prevent="save">
       <div class="flex items-center justify-between">
         <h3 class="card-title">{{ editing ? `编辑：${editing.provider_name}` : '添加供应方' }}</h3>
         <button type="button" class="icon-btn" aria-label="取消" @click="formOpen = false"><X class="h-4 w-4" /></button>
@@ -143,11 +143,11 @@ async function remove(p: ProviderOut) {
 
     <EmptyState v-if="!providers.length" class="glass" title="还没有配置供应方" desc="添加至少一个供应方和模型后，智能体才能调用大模型" />
     <ul class="space-y-2">
-      <li v-for="p in providers" :key="p.provider_id" class="glass flex flex-wrap items-center gap-3 p-3">
+      <li v-for="p in providers" :key="p.provider_id" class="glass flex flex-wrap items-center gap-3 p-5">
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2">
             <span class="text-sm font-medium text-white">{{ p.provider_name }}</span>
-            <span class="rounded-md bg-white/5 px-1.5 py-0.5 font-mono text-[11px] text-slate-400">{{ p.provider_type }}</span>
+            <span class="pill sunken font-mono text-slate-400">{{ p.provider_type }}</span>
             <span v-if="!p.enabled" class="text-xs text-amber-300">已停用</span>
           </div>
           <div class="mt-0.5 truncate font-mono text-xs text-slate-500">{{ p.base_url }}</div>

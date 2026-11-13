@@ -4,15 +4,9 @@ defineProps<{ size?: number }>()
 
 <template>
   <svg :width="size ?? 32" :height="size ?? 32" viewBox="0 0 64 64" aria-hidden="true">
-    <defs>
-      <linearGradient id="cs-logo-g" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0" stop-color="#8b5cf6" />
-        <stop offset="1" stop-color="#4f46e5" />
-      </linearGradient>
-    </defs>
-    <rect x="4" y="4" width="56" height="56" rx="16" fill="url(#cs-logo-g)" />
-    <circle cx="30" cy="30" r="12" fill="none" stroke="#fff" stroke-width="5" />
-    <path d="M39 39 L48 48" stroke="#fff" stroke-width="5" stroke-linecap="round" />
-    <circle cx="34" cy="26" r="3.2" fill="#c7d2fe" />
+    <rect x="4" y="4" width="56" height="56" rx="18" fill="#c9efd9" />
+    <circle cx="29" cy="29" r="12" fill="#fff" stroke="#111214" stroke-width="5" />
+    <path d="M38 38 L47 47" stroke="#111214" stroke-width="5.5" stroke-linecap="round" />
+    <circle cx="47" cy="17" r="5" fill="#f2c94c" />
   </svg>
 </template>

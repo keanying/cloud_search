@@ -1,26 +1,27 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { Tone } from '@/lib/format'
-const props = defineProps<{ tone?: Tone; pulse?: boolean }>()
+const props = defineProps<{ tone?: Tone; pulse?: boolean; emoji?: string }>()
 const cls = computed(() => {
   switch (props.tone) {
     case 'info':
-      return 'border-brand-400/40 bg-brand-500/15 text-brand-300'
+      return 'card-sky accent-ink'
     case 'success':
-      return 'border-emerald-400/40 bg-emerald-500/15 text-emerald-200'
+      return 'card-mint accent-ink'
     case 'warning':
-      return 'border-amber-400/40 bg-amber-500/15 text-amber-200'
+      return 'card-butter accent-ink'
     case 'danger':
-      return 'border-rose-400/40 bg-rose-500/15 text-rose-200'
+      return 'card-peach accent-ink'
     default:
-      return 'border-white/15 bg-white/5 text-slate-300'
+      return 'sunken text-slate-300 border hairline'
   }
 })
 </script>
 
 <template>
-  <span class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium whitespace-nowrap" :class="cls">
-    <span v-if="pulse" class="h-1.5 w-1.5 animate-pulse rounded-full bg-current" aria-hidden="true" />
+  <span class="pill !rounded-full" :class="cls">
+    <span v-if="emoji" aria-hidden="true">{{ emoji }}</span>
+    <span v-else-if="pulse" class="cs-ping h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
     <slot />
   </span>
 </template>

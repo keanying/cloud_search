@@ -325,17 +325,17 @@ function onPaste(e: ClipboardEvent) {
     </div>
     <div
       v-if="interactive"
-      class="mx-3 mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-gradient-to-r from-brand-500 to-violet-500 px-3 py-2 text-snow shadow-md"
+      class="card-butter mx-3 mt-3 flex flex-wrap items-center gap-2 !rounded-2xl px-3.5 py-2.5 accent-ink"
       role="status"
     >
       <MousePointerClick class="h-4 w-4" />
       <span class="text-sm font-medium">你正在操作云端浏览器 · AI 已暂停</span>
-      <span v-if="countdown" class="text-xs opacity-80">剩余 {{ countdown }}</span>
+      <span v-if="countdown" class="pill bg-[var(--cs-surface-solid)] font-mono text-slate-200">剩余 {{ countdown }}</span>
       <div class="flex-1" />
-      <button class="btn btn-sm bg-snow/95 text-[#4f46e5] hover:bg-snow" :disabled="actionBusy" @click="giveBack(true)">
+      <button class="btn-primary btn-sm" :disabled="actionBusy" @click="giveBack(true)">
         <Loader2 v-if="actionBusy" class="h-3.5 w-3.5 animate-spin" /> 完成，交还给 AI
       </button>
-      <button class="btn btn-sm text-snow/90 hover:bg-snow/15" :disabled="actionBusy" @click="giveBack(false)">跳过</button>
+      <button class="btn-secondary btn-sm" :disabled="actionBusy" @click="giveBack(false)">跳过</button>
     </div>
 
     <div class="min-h-0 flex-1 overflow-auto p-3">

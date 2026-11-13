@@ -6,7 +6,7 @@ import { api } from '@/api/client'
 import { usePanelStore } from '@/stores/panel'
 import { useToastStore } from '@/stores/toast'
 
-const props = defineProps<{ part: TakeoverPart }>()
+const props = defineProps<{ part: TakeoverPart; compact?: boolean }>()
 const panel = usePanelStore()
 const toast = useToastStore()
 const busy = ref(false)
@@ -61,27 +61,51 @@ async function skip() {
 <template>
   <div
     v-if="open"
-    class="flex flex-wrap items-center gap-3 rounded-2xl border border-amber-400/50 bg-amber-500/10 p-3.5"
+    class="card-butter takeover-tilt relative p-5"
+    :class="compact ? '' : 'max-w-xl'"
     role="alert"
   >
-    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/20">
-      <ShieldAlert class="h-5 w-5 text-amber-300" />
-    </span>
-    <div class="min-w-0 flex-1">
-      <div class="text-sm font-semibold text-white">需要你协助：{{ part.reason }}</div>
-      <div class="mt-0.5 flex items-center gap-1 text-xs text-slate-400">
-        <Clock class="h-3 w-3" />
-        <template v-if="part.state === 'active'">你正在处理，完成后在浏览器面板点“完成，交还给 AI”</template>
-        <template v-else>AI 已暂停在该页面<template v-if="countdown">，{{ countdown }} 后将自动跳过</template></template>
+    <div class="flex items-center gap-2">
+      <span class="cs-ping h-2.5 w-2.5 rounded-full accent-dot text-[var(--accent-dot)]" aria-hidden="true" />
+      <span class="pill bg-[var(--cs-surface-solid)] text-slate-100">✋ 需要你</span>
+      <div class="flex-1" />
+      <span v-if="countdown" class="pill bg-[var(--cs-surface-solid)] font-mono text-slate-200 tabular-nums">
+        <Clock class="h-3 w-3" /> {{ countdown }}
+      </span>
+    </div>
+    <div class="mt-3 flex items-start gap-3">
+      <span v-if="!compact" class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--cs-surface-solid)]">
+        <ShieldAlert class="h-5 w-5 accent-ink" />
+      </span>
+      <div class="min-w-0 flex-1">
+        <div class="text-[15px] leading-6 font-bold tracking-tight text-white">{{ part.reason }}</div>
+        <div class="mt-1 text-xs accent-ink">
+          <template v-if="part.state === 'active'">你正在处理，完成后在浏览器面板点“完成，交还给 AI”</template>
+          <template v-else>AI 已暂停在该页面<template v-if="countdown">，到时将自动跳过</template></template>
+        </div>
       </div>
     </div>
-    <template v-if="part.state === 'requested'">
-      <button class="btn-primary btn-sm" :disabled="busy" @click="takeOver"><Hand class="h-3.5 w-3.5" /> 接手处理</button>
-      <button class="btn-ghost btn-sm" :disabled="busy" @click="skip"><SkipForward class="h-3.5 w-3.5" /> 跳过</button>
-    </template>
-    <button v-else class="btn-secondary btn-sm" @click="showBrowser"><MonitorPlay class="h-3.5 w-3.5" /> 打开浏览器</button>
+    <div class="mt-4 flex flex-wrap gap-2">
+      <template v-if="part.state === 'requested'">
+        <button class="btn-primary btn-sm" :disabled="busy" @click="takeOver"><Hand class="h-3.5 w-3.5" /> 接手处理</button>
+        <button class="btn-secondary btn-sm" :disabled="busy" @click="skip"><SkipForward class="h-3.5 w-3.5" /> 跳过</button>
+      </template>
+      <button v-else class="btn-primary btn-sm" @click="showBrowser"><MonitorPlay class="h-3.5 w-3.5" /> 打开浏览器</button>
+    </div>
   </div>
-  <div v-else class="flex items-center gap-2 px-1 text-xs text-slate-400">
+  <div v-else-if="!compact" class="flex items-center gap-2 px-1 text-xs text-slate-400">
     <CheckCircle2 class="h-3.5 w-3.5" /> 人工协助（{{ part.reason }}）：{{ finalLabel }}
   </div>
 </template>
+
+<style scoped>
+.takeover-tilt {
+  transform: rotate(-1.5deg);
+  box-shadow: 0 14px 30px -18px rgba(90, 72, 8, 0.45);
+}
+@media (prefers-reduced-motion: reduce) {
+  .takeover-tilt {
+    transform: none;
+  }
+}
+</style>

@@ -75,7 +75,7 @@ async function save(role: string) {
     </p>
     <div v-if="!enabledModels.length" class="glass mb-3 px-4 py-3 text-sm text-amber-200">请先在“模型”页添加并启用至少一个模型。</div>
     <ul class="space-y-2">
-      <li v-for="b in bindings" :key="b.agent_role" class="glass p-4">
+      <li v-for="b in bindings" :key="b.agent_role" class="glass p-5">
         <div class="flex flex-wrap items-baseline gap-2">
           <span class="text-sm font-semibold text-white">{{ b.role_label }}</span>
           <span class="font-mono text-xs text-slate-500">{{ b.agent_role }}</span>
@@ -111,7 +111,7 @@ async function save(role: string) {
               :key="m.model_profile_id"
               type="button"
               class="rounded-full border px-2.5 py-1 text-xs"
-              :class="drafts[b.agent_role].fallback_profile_ids.includes(m.model_profile_id) ? 'border-brand-400/60 bg-brand-500/20 text-white' : 'border-white/15 text-slate-400 hover:text-white'"
+              :class="drafts[b.agent_role].fallback_profile_ids.includes(m.model_profile_id) ? 'chip-active' : 'border-white/15 text-slate-400 hover:text-white'"
               :aria-pressed="drafts[b.agent_role].fallback_profile_ids.includes(m.model_profile_id)"
               @click="toggleFallback(b.agent_role, m.model_profile_id)"
             >

@@ -4,7 +4,7 @@ import { Download, Eye, FileBarChart, FileSpreadsheet, FileText, Loader2 } from 
 import type { ArtifactFormat, ArtifactPart } from '@/api/types'
 import { api } from '@/api/client'
 import { artifactKindLabel, formatBytes, qualityLabel } from '@/lib/format'
-import { FORMAT_LABEL, downloadFormat, partFormats, previewArtifactId } from '@/lib/artifactFormats'
+import { FORMAT_LABEL, FORMAT_TONE, downloadFormat, partFormats, previewArtifactId } from '@/lib/artifactFormats'
 import { usePanelStore } from '@/stores/panel'
 import { useToastStore } from '@/stores/toast'
 
@@ -47,36 +47,39 @@ function preview() {
 </script>
 
 <template>
-  <div class="surface p-3.5">
+  <div class="card-sky p-5">
     <div class="flex items-center gap-3">
-      <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl" :class="isTable ? 'bg-emerald-500/12' : 'bg-brand-500/12'">
-        <FileSpreadsheet v-if="isTable" class="h-5 w-5 text-emerald-500" />
-        <FileBarChart v-else-if="isReport" class="h-5 w-5 text-brand-500" />
-        <FileText v-else class="h-5 w-5 text-brand-500" />
+      <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--cs-surface-solid)]">
+        <FileSpreadsheet v-if="isTable" class="h-6 w-6 accent-ink" />
+        <FileBarChart v-else-if="isReport" class="h-6 w-6 accent-ink" />
+        <FileText v-else class="h-6 w-6 accent-ink" />
       </div>
       <div class="min-w-0 flex-1">
-        <div class="truncate text-sm font-semibold text-white">{{ title }}</div>
-        <div class="mt-0.5 flex flex-wrap gap-x-2 text-xs text-slate-400">
-          <span>{{ artifactKindLabel(part.artifact_kind) }}</span>
+        <div class="text-xs font-bold tracking-wide accent-ink">📦 {{ artifactKindLabel(part.artifact_kind) }}已生成</div>
+        <div class="truncate text-[15px] font-bold tracking-tight text-white">{{ title }}</div>
+        <div class="mt-0.5 flex flex-wrap gap-x-2 text-xs text-slate-300">
           <span v-if="part.record_qty != null">{{ part.record_qty }} 条记录</span>
           <span v-if="!formats.length || formats.length === 1">{{ formatBytes(part.byte_qty) }}</span>
           <span v-if="part.quality_status">{{ qualityLabel(part.quality_status) }}</span>
         </div>
       </div>
-      <button class="btn-secondary btn-sm shrink-0" @click="preview"><Eye class="h-3.5 w-3.5" /> 预览</button>
+      <button class="btn-primary btn-sm shrink-0" @click="preview"><Eye class="h-3.5 w-3.5" /> 预览</button>
     </div>
-    <div class="mt-3 flex flex-wrap gap-1.5">
+    <div class="mt-4 flex flex-wrap items-center gap-1.5">
       <template v-if="formats.length">
+        <span class="mr-1 text-xs font-semibold text-slate-300">下载</span>
         <button
           v-for="f in formats"
           :key="f.artifact_id"
-          class="btn-secondary btn-sm"
+          class="pill !px-3 !py-1.5 bg-[var(--cs-surface-solid)] text-slate-100 transition hover:-translate-y-px hover:shadow-sm"
           :disabled="busy === f.artifact_id"
           :title="`下载 ${FORMAT_LABEL[f.format]}（${formatBytes(f.byte_qty)}）`"
           @click="dl(f)"
         >
           <Loader2 v-if="busy === f.artifact_id" class="h-3.5 w-3.5 animate-spin" />
-          <Download v-else class="h-3.5 w-3.5" /> {{ FORMAT_LABEL[f.format] }}
+          <span v-else class="h-2.5 w-2.5 rounded-full" :style="{ background: `var(--pastel-${FORMAT_TONE[f.format]}-dot)` }" />
+          {{ FORMAT_LABEL[f.format] }}
+          <Download class="h-3 w-3 opacity-60" />
         </button>
       </template>
       <button

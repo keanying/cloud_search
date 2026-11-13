@@ -38,16 +38,18 @@ export async function loadECharts() {
   return (await import('./echarts-setup')).echarts
 }
 
-const PALETTE = ['#6366f1', '#14b8a6', '#f59e0b', '#ec4899', '#8b5cf6', '#0ea5e9', '#22c55e', '#ef4444']
+// 与界面粉彩卡片同色系（饱和一档，保证图表可读）
+const PALETTE = ['#3d8bd4', '#2bb27a', '#7b68d8', '#e0a400', '#e46a3a', '#4fb3bf', '#b35fb0', '#8a8d93']
+const PALETTE_DARK = ['#7ab4e8', '#5fcf9a', '#a596ef', '#ebc85a', '#f19a7c', '#7fd0da', '#d39ad0', '#b0b2b8']
 
 export function buildOption(spec: ChartSpec, dark: boolean) {
-  const text = dark ? '#cbd5e1' : '#334155'
-  const muted = dark ? '#64748b' : '#94a3b8'
-  const line = dark ? 'rgba(255,255,255,.08)' : 'rgba(15,23,42,.08)'
+  const text = dark ? '#dcdcd6' : '#303236'
+  const muted = dark ? '#8a8a85' : '#8a8c92'
+  const line = dark ? 'rgba(255,255,255,.08)' : 'rgba(17,18,20,.08)'
   const unit = spec.unit ? ` ${spec.unit}` : ''
   const fmt = (v: unknown) => (v == null ? '无数据' : `${typeof v === 'number' ? v.toLocaleString('zh-CN') : v}${unit}`)
   const base = {
-    color: PALETTE,
+    color: dark ? PALETTE_DARK : PALETTE,
     backgroundColor: 'transparent',
     textStyle: { color: text, fontFamily: 'inherit' },
     title: { text: spec.title, left: 'center', top: 4, textStyle: { color: text, fontSize: 14, fontWeight: 600 } },
@@ -59,7 +61,7 @@ export function buildOption(spec: ChartSpec, dark: boolean) {
     return {
       ...base,
       series: [{
-        type: 'pie', radius: ['38%', '66%'], center: ['50%', '52%'], itemStyle: { borderRadius: 6, borderColor: dark ? '#141b33' : '#fff', borderWidth: 2 },
+        type: 'pie', radius: ['38%', '66%'], center: ['50%', '52%'], itemStyle: { borderRadius: 6, borderColor: dark ? '#1f1f22' : '#fff', borderWidth: 2 },
         label: { color: text, formatter: '{b}\n{d}%' },
         data: spec.categories.map((c, i) => ({ name: c, value: s.values[i] })),
       }],
@@ -72,7 +74,7 @@ export function buildOption(spec: ChartSpec, dark: boolean) {
     yAxis: { type: 'value', name: spec.unit ?? '', nameTextStyle: { color: muted }, splitLine: { lineStyle: { color: line } }, axisLabel: { color: muted } },
     series: spec.series.map((s) => ({
       name: s.name, type: spec.type, data: s.values, smooth: spec.type === 'line', barMaxWidth: 36,
-      itemStyle: spec.type === 'bar' ? { borderRadius: [6, 6, 0, 0] } : undefined,
+      itemStyle: spec.type === 'bar' ? { borderRadius: [10, 10, 0, 0] } : undefined,
       connectNulls: false,
     })),
   }

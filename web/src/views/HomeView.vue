@@ -180,7 +180,7 @@ const last = computed(() => convs.items.find((c) => c.conversation_status === 'a
     <section ref="hero" class="relative flex min-h-[100dvh] flex-col" aria-label="搜索">
       <HomeArtLayer :art="prefs.homeArt" />
       <div class="relative mx-auto flex w-full max-w-4xl flex-1 flex-col items-center justify-center px-4 pt-20 pb-32">
-        <h1 class="text-center text-2xl font-medium tracking-wide text-white md:text-[28px]">你好，今天想探索什么？</h1>
+        <h1 class="text-center text-[28px] font-bold tracking-tight text-white md:text-[36px]">你好，今天想探索什么？</h1>
         <p class="mt-2 text-center text-sm text-slate-400">从一个问题开始，让 AI 帮你搜索、整理数据、生成报告</p>
 
         <div class="mt-7 w-full max-w-[720px]">

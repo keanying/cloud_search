@@ -162,7 +162,7 @@ const openFaq = ref<number | null>(0)
           <h2 id="how-title" class="lp-h2 mt-4">四步，从需求到成果</h2>
         </div>
         <ol class="relative mt-14 grid gap-6 md:grid-cols-4 md:gap-5">
-          <div class="pointer-events-none absolute top-7 right-[12%] left-[12%] hidden h-px bg-gradient-to-r from-brand-400/0 via-brand-400/50 to-brand-400/0 md:block" aria-hidden="true" />
+          <div class="pointer-events-none absolute top-7 right-[12%] left-[12%] hidden border-t-2 border-dotted border-slate-500/50 md:block" aria-hidden="true" />
           <li v-for="(s, i) in STEPS" :key="s.title" v-reveal="i * 90" class="relative flex gap-4 md:flex-col md:items-center md:text-center">
             <span class="relative z-[1] flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border shadow-sm" style="background: var(--cs-surface-solid); border-color: var(--cs-line-strong)">
               <component :is="s.icon" class="h-6 w-6 text-brand-300" />
@@ -394,23 +394,17 @@ const openFaq = ref<number | null>(0)
   box-shadow: 0 30px 60px -30px rgba(15, 23, 42, 0.55);
 }
 .lp-dark-visual {
-  background:
-    radial-gradient(420px 320px at 70% 30%, rgba(99, 102, 241, 0.35), transparent 70%),
-    radial-gradient(360px 300px at 20% 90%, rgba(20, 184, 166, 0.22), transparent 70%),
-    #0a1022;
+  background: #111214;
 }
 .lp-cta {
-  background:
-    radial-gradient(60% 80% at 50% 110%, color-mix(in srgb, var(--color-brand-500) 45%, transparent), transparent 70%),
-    radial-gradient(40% 60% at 15% 0%, color-mix(in srgb, #2dd4bf 22%, transparent), transparent 70%),
-    var(--lp-tint-indigo);
+  background: var(--pastel-mint);
   border: 1px solid var(--cs-line);
 }
 .lp-cta::before {
   content: '';
   position: absolute;
   inset: 0;
-  background-image: radial-gradient(color-mix(in srgb, var(--color-brand-400) 35%, transparent) 1px, transparent 1.2px);
+  background-image: radial-gradient(color-mix(in srgb, var(--pastel-mint-ink) 22%, transparent) 1px, transparent 1.2px);
   background-size: 18px 18px;
   mask-image: radial-gradient(70% 60% at 50% 100%, #000 30%, transparent 75%);
   -webkit-mask-image: radial-gradient(70% 60% at 50% 100%, #000 30%, transparent 75%);

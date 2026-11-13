@@ -19,7 +19,7 @@
     <div class="grid md:grid-cols-[1.05fr_1fr]">
       <!-- 左：对话 -->
       <div class="space-y-3 p-4 md:p-5">
-        <div class="ml-auto w-fit max-w-[85%] rounded-2xl rounded-tr-md bg-brand-500 px-3.5 py-2 text-[13px] text-snow">
+        <div class="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-md bg-[var(--cs-ink)] px-3.5 py-2 text-[13px] text-[var(--cs-on-ink)]">
           今年国内主要博物馆的开放时间和预约规则有什么变化？
         </div>
         <div class="hairline rounded-xl border p-3" style="background: var(--cs-surface-solid)">
@@ -70,7 +70,7 @@
             <span class="truncate rounded-md bg-white/5 px-2 py-0.5">https://www.dpm.org.cn/Visit.html</span>
           </div>
           <div class="space-y-2.5 p-3">
-            <div class="h-16 rounded-lg bg-gradient-to-r from-[#b45309]/70 to-[#9f1239]/70" />
+            <div class="h-16 rounded-xl" style="background: var(--pastel-peach)" />
             <div class="grid grid-cols-3 gap-2">
               <div v-for="i in 3" :key="i" class="h-10 rounded-md bg-white/6" />
             </div>

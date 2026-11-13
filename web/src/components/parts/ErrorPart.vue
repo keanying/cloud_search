@@ -5,11 +5,13 @@ defineProps<{ part: ErrorPart }>()
 </script>
 
 <template>
-  <div class="flex items-start gap-2 rounded-2xl border border-rose-400/30 bg-rose-500/10 px-3 py-2.5 text-sm" role="alert">
-    <AlertTriangle class="mt-0.5 h-4 w-4 shrink-0 text-rose-300" />
-    <div>
-      <div class="text-rose-100">{{ part.message }}</div>
-      <div v-if="part.code" class="mt-0.5 font-mono text-xs text-rose-300/70">{{ part.code }}</div>
+  <div class="card-peach flex items-start gap-3 p-4 text-sm" role="alert">
+    <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--cs-surface-solid)]">
+      <AlertTriangle class="h-4 w-4 accent-ink" />
+    </span>
+    <div class="pt-1">
+      <div class="font-semibold text-white">{{ part.message }}</div>
+      <div v-if="part.code" class="mt-0.5 font-mono text-xs accent-ink opacity-80">{{ part.code }}</div>
     </div>
   </div>
 </template>

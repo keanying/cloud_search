@@ -63,7 +63,7 @@ async function remove(id: string) {
   <Teleport to="body">
     <div v-if="open" class="fixed inset-0 z-50 flex justify-end" @keydown.escape="emit('close')">
       <div class="absolute inset-0 bg-black/40" @click="emit('close')" />
-      <aside class="glass-strong relative flex h-full w-full max-w-sm flex-col rounded-none rounded-l-2xl" aria-label="最近对话">
+      <aside class="glass-strong relative flex h-full w-full max-w-sm flex-col !rounded-none sm:!rounded-l-[28px]" aria-label="最近对话">
         <header class="flex items-center justify-between border-b border-white/10 px-4 py-3">
           <h2 class="text-base font-semibold">最近对话</h2>
           <button class="icon-btn" aria-label="关闭" @click="emit('close')"><X class="h-4 w-4" /></button>
@@ -72,14 +72,14 @@ async function remove(id: string) {
           <label class="relative block">
             <span class="sr-only">搜索对话</span>
             <Search class="absolute top-2.5 left-3 h-4 w-4 text-slate-500" />
-            <input ref="searchEl" v-model="q" class="input pl-9" placeholder="按标题搜索" />
+            <input ref="searchEl" v-model="q" class="input !rounded-full pl-9" placeholder="按标题搜索" />
           </label>
         </div>
         <div class="flex-1 overflow-y-auto px-2 pb-4">
           <EmptyState v-if="store.loaded && !filtered.length" :title="q ? '没有匹配的对话' : '还没有对话'" desc="在首页输入问题即可开始" />
           <ul>
             <li v-for="c in filtered" :key="c.conversation_id" class="group">
-              <div class="flex items-center gap-2 rounded-xl px-2 py-2 hover:bg-white/5">
+              <div class="flex items-center gap-2 rounded-2xl px-2.5 py-2.5 hover:bg-white/5">
                 <button class="flex min-w-0 flex-1 items-center gap-2 text-left" @click="go(c.conversation_id)">
                   <MessageSquare class="h-4 w-4 shrink-0 text-slate-400" />
                   <span class="min-w-0 flex-1">

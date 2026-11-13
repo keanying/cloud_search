@@ -162,7 +162,7 @@ function price(f: number | null, cur: string) {
       <button class="btn-primary btn-sm shrink-0" :disabled="!providers.length" @click="openAdd"><Plus class="h-3.5 w-3.5" /> 添加模型</button>
     </div>
 
-    <form v-if="formOpen" class="glass mb-4 space-y-3 p-4" @submit.prevent="save">
+    <form v-if="formOpen" class="glass mb-4 space-y-3 p-6" @submit.prevent="save">
       <div class="flex items-center justify-between">
         <h3 class="card-title">{{ editing ? `编辑：${editing.display_name || editing.model_name}` : '添加模型' }}</h3>
         <button type="button" class="icon-btn" aria-label="取消" @click="formOpen = false"><X class="h-4 w-4" /></button>
@@ -227,23 +227,23 @@ function price(f: number | null, cur: string) {
 
     <EmptyState v-if="!models.length" class="glass" :title="providers.length ? '还没有模型' : '请先添加供应方'" />
     <ul class="space-y-2">
-      <li v-for="m in models" :key="m.model_profile_id" class="glass p-3">
+      <li v-for="m in models" :key="m.model_profile_id" class="glass p-5">
         <div class="flex flex-wrap items-center gap-3">
           <div class="min-w-0 flex-1">
             <div class="flex flex-wrap items-center gap-2">
               <span class="text-sm font-medium text-white">{{ m.display_name || m.model_name }}</span>
               <span class="font-mono text-xs text-slate-500">{{ m.model_name }}</span>
-              <span class="rounded-md bg-white/5 px-1.5 py-0.5 text-[11px] text-slate-400">{{ m.provider_name || providerName(m.provider_id) }}</span>
+              <span class="pill sunken text-slate-400">{{ m.provider_name || providerName(m.provider_id) }}</span>
               <span v-if="!m.enabled" class="text-xs text-amber-300">已停用</span>
             </div>
             <div class="mt-1 flex flex-wrap gap-1.5 text-[11px]">
-              <span v-if="m.supports_tools" class="rounded bg-brand-500/15 px-1.5 py-0.5 text-brand-300">工具调用</span>
+              <span v-if="m.supports_tools" class="pill card-mint accent-ink">工具调用</span>
               <span v-if="m.supports_tools && !m.supports_forced_tool_choice" class="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-300" title="思考模式：工具调用改为自动选择">非强制</span>
-              <span v-if="m.supports_json_schema" class="rounded bg-brand-500/15 px-1.5 py-0.5 text-brand-300">JSON Schema</span>
-              <span v-if="m.supports_json_object" class="rounded bg-brand-500/15 px-1.5 py-0.5 text-brand-300">JSON 模式</span>
-              <span v-if="m.supports_vision" class="rounded bg-brand-500/15 px-1.5 py-0.5 text-brand-300">图片输入</span>
-              <span v-if="m.context_window_qty" class="rounded bg-white/5 px-1.5 py-0.5 text-slate-400">上下文 {{ m.context_window_qty }}</span>
-              <span class="rounded bg-white/5 px-1.5 py-0.5 text-slate-400">
+              <span v-if="m.supports_json_schema" class="pill card-mint accent-ink">JSON Schema</span>
+              <span v-if="m.supports_json_object" class="pill card-mint accent-ink">JSON 模式</span>
+              <span v-if="m.supports_vision" class="pill card-mint accent-ink">图片输入</span>
+              <span v-if="m.context_window_qty" class="pill sunken text-slate-400">上下文 {{ m.context_window_qty }}</span>
+              <span class="pill sunken text-slate-400">
                 输入 {{ price(m.input_price_minor_amt, m.currency_code) }} · 输出 {{ price(m.output_price_minor_amt, m.currency_code) }} /百万token
               </span>
             </div>

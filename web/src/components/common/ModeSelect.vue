@@ -23,7 +23,7 @@ function pick(v: ModeSelection) {
   <div ref="root" class="relative">
     <button
       type="button"
-      class="inline-flex items-center gap-1 rounded-xl border border-white/15 bg-white/5 px-3 py-1.5 text-sm text-slate-100 hover:bg-white/10"
+      class="inline-flex items-center gap-1 rounded-full border hairline sunken px-3.5 py-1.5 text-sm font-semibold text-slate-100 hover:bg-white/10"
       :aria-expanded="open"
       aria-haspopup="listbox"
       aria-label="选择执行模式"
@@ -46,7 +46,7 @@ function pick(v: ModeSelection) {
           type="button"
           role="option"
           :aria-selected="m.value === model"
-          class="flex w-full items-start gap-2 rounded-lg px-3 py-2 text-left hover:bg-white/10"
+          class="flex w-full items-start gap-2 rounded-xl px-3 py-2 text-left hover:bg-white/10"
           @click="pick(m.value)"
         >
           <Check class="mt-0.5 h-4 w-4 shrink-0" :class="m.value === model ? 'text-brand-300' : 'opacity-0'" />

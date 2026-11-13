@@ -12,6 +12,23 @@ export const FORMAT_LABEL: Record<ArtifactFormatName, string> = {
   json: 'JSON',
 }
 
+/** 格式胶囊的粉彩色：Word 紫、PDF 桃、Excel 绿、HTML 蓝、Markdown 黄 */
+export const FORMAT_TONE: Record<ArtifactFormatName, 'lilac' | 'peach' | 'mint' | 'sky' | 'butter'> = {
+  docx: 'lilac',
+  pdf: 'peach',
+  xlsx: 'mint',
+  csv: 'mint',
+  html: 'sky',
+  md: 'butter',
+  json: 'butter',
+}
+
+/** 由文件名推断格式 */
+export function formatOfName(name: string): ArtifactFormatName | null {
+  const ext = (name.match(/\.([A-Za-z0-9]{1,5})$/)?.[1] ?? '').toLowerCase()
+  return ext in FORMAT_LABEL ? (ext as ArtifactFormatName) : null
+}
+
 const ORDER: ArtifactFormatName[] = ['docx', 'pdf', 'xlsx', 'html', 'csv', 'md', 'json']
 
 /** 文件名：主文件名去掉扩展名后加上该格式的扩展名 */

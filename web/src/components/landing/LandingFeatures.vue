@@ -65,7 +65,7 @@ const BARS = [62, 88, 45, 74, 56]
     <article v-reveal class="lp-card">
       <div class="lp-visual" style="background: var(--lp-tint-sky)">
         <div class="flex h-24 items-end gap-2.5 px-1" aria-hidden="true">
-          <div v-for="(h, i) in BARS" :key="i" class="flex-1 rounded-t-md bg-gradient-to-t from-brand-500 to-violet-400" :style="{ height: h + '%' }" />
+          <div v-for="(h, i) in BARS" :key="i" class="flex-1 rounded-t-xl" :style="{ height: h + '%', background: ['var(--pastel-sky-dot)', 'var(--pastel-lilac-dot)', 'var(--pastel-mint-dot)', 'var(--pastel-butter-dot)', 'var(--pastel-peach-dot)'][i % 5] }" />
         </div>
         <div class="mt-3 flex gap-1.5">
           <span class="rounded-md bg-brand-500/12 px-2 py-0.5 text-[11px] text-brand-300">Word</span>
@@ -85,7 +85,7 @@ const BARS = [62, 88, 45, 74, 56]
           <div class="text-[12.5px] font-semibold text-white">需要你协助：搜索引擎要求人机验证</div>
           <div class="mt-1 text-[11px] text-slate-400">AI 已暂停在该页面 · 4:56 后自动跳过</div>
           <div class="mt-2.5 flex gap-2">
-            <span class="rounded-lg bg-brand-500 px-2.5 py-1 text-[11px] text-snow">接手处理</span>
+            <span class="rounded-full bg-[var(--cs-ink)] px-2.5 py-1 text-[11px] font-semibold text-[var(--cs-on-ink)]">接手处理</span>
             <span class="rounded-lg bg-white/6 px-2.5 py-1 text-[11px] text-slate-300">跳过</span>
           </div>
         </div>
@@ -116,7 +116,7 @@ const BARS = [62, 88, 45, 74, 56]
 <style scoped>
 .lp-card {
   border: 1px solid var(--cs-line);
-  border-radius: 22px;
+  border-radius: 30px;
   padding: 12px 12px 22px;
   background: var(--cs-surface-solid);
   box-shadow: var(--cs-shadow);
@@ -127,7 +127,7 @@ const BARS = [62, 88, 45, 74, 56]
   box-shadow: var(--cs-shadow-lg);
 }
 .lp-visual {
-  border-radius: 16px;
+  border-radius: 22px;
   padding: 18px;
   min-height: 176px;
 }
@@ -135,16 +135,16 @@ const BARS = [62, 88, 45, 74, 56]
   width: fit-content;
   margin-left: auto;
   border-radius: 14px 14px 4px 14px;
-  background: var(--color-brand-500);
-  color: #fff;
+  background: var(--cs-ink);
+  color: var(--cs-on-ink);
   padding: 6px 12px;
   font-size: 12px;
 }
 .lp-card-title {
   margin: 18px 10px 6px;
-  font-size: 17px;
-  font-weight: 650;
-  letter-spacing: -0.01em;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
   color: var(--color-white);
 }
 .lp-card-desc {

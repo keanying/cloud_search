@@ -10,9 +10,9 @@ const trees = [
   <svg class="h-full w-full" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
     <defs>
       <linearGradient id="hills-sky" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stop-color="#eef0ff" />
-        <stop offset="0.6" stop-color="#f6f2ff" />
-        <stop offset="1" stop-color="#fdf4ff" />
+        <stop offset="0" stop-color="#edf4ec" />
+        <stop offset="0.6" stop-color="#f5f6ee" />
+        <stop offset="1" stop-color="#faf7ee" />
       </linearGradient>
       <radialGradient id="hills-sun" cx="0.5" cy="0.5" r="0.5">
         <stop offset="0" stop-color="#fde68a" />
@@ -28,19 +28,19 @@ const trees = [
       <ellipse cx="350" cy="176" rx="60" ry="20" />
       <ellipse cx="1040" cy="150" rx="70" ry="16" />
     </g>
-    <g fill="none" stroke="#6366f1" stroke-width="3" stroke-linecap="round" opacity="0.45">
+    <g fill="none" stroke="#2f6b4f" stroke-width="3" stroke-linecap="round" opacity="0.45">
       <path d="M520 230 q10 -10 20 0 q10 -10 20 0" />
       <path d="M570 260 q8 -8 16 0 q8 -8 16 0" />
     </g>
-    <path d="M0 600 C 200 520 380 540 560 590 S 900 520 1100 560 S 1420 520 1600 570 V900 H0 Z" fill="#dfe3fb" />
-    <path d="M0 660 C 180 600 360 620 520 660 S 820 610 1000 640 S 1360 600 1600 640 V900 H0 Z" fill="#c7d2fe" />
-    <path d="M0 720 C 220 660 420 700 640 720 S 980 670 1200 700 S 1480 690 1600 700 V900 H0 Z" fill="#a5b4fc" />
+    <path d="M0 600 C 200 520 380 540 560 590 S 900 520 1100 560 S 1420 520 1600 570 V900 H0 Z" fill="#dbeadb" />
+    <path d="M0 660 C 180 600 360 620 520 660 S 820 610 1000 640 S 1360 600 1600 640 V900 H0 Z" fill="#c3dfc6" />
+    <path d="M0 720 C 220 660 420 700 640 720 S 980 670 1200 700 S 1480 690 1600 700 V900 H0 Z" fill="#a6d0b0" />
     <g v-for="(t, i) in trees" :key="i" :transform="`translate(${t.x} ${t.y}) scale(${t.s})`">
-      <rect x="-3" y="18" width="6" height="22" fill="#4338ca" opacity="0.7" />
-      <path d="M0 -36 L22 22 H-22 Z" fill="#4f46e5" opacity="0.85" />
+      <rect x="-3" y="18" width="6" height="22" fill="#2f5e46" opacity="0.7" />
+      <path d="M0 -36 L22 22 H-22 Z" fill="#3a7d5a" opacity="0.85" />
     </g>
-    <path d="M0 790 C 260 740 520 780 760 790 S 1180 750 1600 780 V900 H0 Z" fill="#818cf8" />
-    <path d="M0 850 C 300 820 640 850 900 846 S 1360 820 1600 840 V900 H0 Z" fill="#6d5ce7" opacity="0.9" />
+    <path d="M0 790 C 260 740 520 780 760 790 S 1180 750 1600 780 V900 H0 Z" fill="#86bf98" />
+    <path d="M0 850 C 300 820 640 850 900 846 S 1360 820 1600 840 V900 H0 Z" fill="#5fa577" opacity="0.9" />
   </svg>
 </template>
 

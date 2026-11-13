@@ -48,6 +48,33 @@ export function taskStatusTone(status: string | null | undefined): Tone {
   }
 }
 
+/** 状态胶囊上的 emoji：执行中 ⏳、已完成 ✅、需要你 ✋、已停止 ⏹ */
+export function taskStatusEmoji(status: string | null | undefined, reason?: string | null): string {
+  if (status === 'draft' && reason && reason !== 'none') return '✋'
+  switch (status) {
+    case 'queued':
+    case 'ready':
+    case 'running':
+    case 'pausing':
+    case 'stopping':
+      return '⏳'
+    case 'completed':
+      return '✅'
+    case 'paused':
+      return '⏸'
+    case 'stopped':
+    case 'cancelled':
+      return '⏹'
+    case 'partial_failed':
+    case 'failed':
+      return '⚠️'
+    case 'draft':
+      return '✋'
+    default:
+      return '•'
+  }
+}
+
 /** 正在占用云端执行（可被“停止当前轮”控制）的状态 */
 export const ACTIVE_STATUSES: ReadonlySet<string> = new Set(['queued', 'running', 'pausing', 'stopping'])
 export const TERMINAL_STATUSES: ReadonlySet<string> = new Set([

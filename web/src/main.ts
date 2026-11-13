@@ -5,6 +5,10 @@ import { router } from './router'
 import { onUnauthorized } from './api/client'
 import { useAuthStore } from './stores/auth'
 import { usePrefsStore } from './stores/prefs'
+import '@fontsource/plus-jakarta-sans/latin-400.css'
+import '@fontsource/plus-jakarta-sans/latin-500.css'
+import '@fontsource/plus-jakarta-sans/latin-600.css'
+import '@fontsource/plus-jakarta-sans/latin-700.css'
 import './style.css'
 
 const app = createApp(App)
