@@ -321,3 +321,57 @@ html.dark {
     @apply my-4;
   }
 }
+
+/* ---------------------------------------------------------------- 首页落地页 */
+.landing-header-solid {
+  background-color: color-mix(in srgb, var(--cs-bg) 94%, transparent);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: 0 1px 0 var(--cs-line);
+}
+:root {
+  --lp-tint-indigo: linear-gradient(160deg, #eef0ff 0%, #f7f3ff 60%, #ffffff 100%);
+  --lp-tint-teal: linear-gradient(160deg, #e6fbf6 0%, #effaff 60%, #ffffff 100%);
+  --lp-tint-amber: linear-gradient(160deg, #fff6e5 0%, #fffaf0 60%, #ffffff 100%);
+  --lp-tint-pink: linear-gradient(160deg, #ffeef5 0%, #fdf2fb 60%, #ffffff 100%);
+  --lp-tint-sky: linear-gradient(160deg, #e8f4ff 0%, #f1f8ff 60%, #ffffff 100%);
+  --lp-tint-violet: linear-gradient(160deg, #f3edff 0%, #f9f5ff 60%, #ffffff 100%);
+  --lp-section-alt: #fbfbfe;
+  --lp-mock-bg: #ffffff;
+  --lp-mock-sub: #f6f7fb;
+}
+html.dark {
+  --lp-tint-indigo: linear-gradient(160deg, rgba(99, 102, 241, 0.18) 0%, rgba(99, 102, 241, 0.05) 70%);
+  --lp-tint-teal: linear-gradient(160deg, rgba(20, 184, 166, 0.16) 0%, rgba(20, 184, 166, 0.04) 70%);
+  --lp-tint-amber: linear-gradient(160deg, rgba(245, 158, 11, 0.16) 0%, rgba(245, 158, 11, 0.04) 70%);
+  --lp-tint-pink: linear-gradient(160deg, rgba(236, 72, 153, 0.15) 0%, rgba(236, 72, 153, 0.04) 70%);
+  --lp-tint-sky: linear-gradient(160deg, rgba(14, 165, 233, 0.16) 0%, rgba(14, 165, 233, 0.04) 70%);
+  --lp-tint-violet: linear-gradient(160deg, rgba(139, 92, 246, 0.18) 0%, rgba(139, 92, 246, 0.05) 70%);
+  --lp-section-alt: #0e1428;
+  --lp-mock-bg: #121a33;
+  --lp-mock-sub: #0f162c;
+}
+/* 滚动出现动画（prefers-reduced-motion 时直接显示） */
+.reveal {
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity 0.7s ease, transform 0.7s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
+@keyframes lp-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(6px); }
+}
+.lp-bounce { animation: lp-bounce 1.8s ease-in-out infinite; }
+@keyframes lp-pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.lp-pulse { animation: lp-pulse-dot 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1; transform: none; transition: none; }
+  .lp-bounce, .lp-pulse { animation: none; }
+}

@@ -8,7 +8,7 @@ import { useAuthStore } from '@/stores/auth'
 const auth = useAuthStore()
 const router = useRouter()
 const route = useRoute()
-const tab = ref<'login' | 'register'>('login')
+const tab = ref<'login' | 'register'>(route.query.tab === 'register' ? 'register' : 'login')
 const username = ref('')
 const password = ref('')
 const displayName = ref('')

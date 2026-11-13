@@ -10,7 +10,8 @@ export const router = createRouter({
       path: '/',
       component: () => import('@/views/AppLayout.vue'),
       children: [
-        { path: '', name: 'home', component: () => import('@/views/HomeView.vue') },
+        // 首页（搜索 + 产品介绍）对未登录访客公开；发起搜索时再引导登录
+        { path: '', name: 'home', component: () => import('@/views/HomeView.vue'), meta: { public: true } },
         { path: 'chat/:id', name: 'chat', component: () => import('@/views/ChatView.vue'), props: true },
         { path: 'artifacts', name: 'artifacts', component: () => import('@/views/ArtifactsView.vue') },
         { path: 'settings', name: 'settings', component: () => import('@/views/SettingsView.vue') },
@@ -27,9 +28,19 @@ export const router = createRouter({
 })
 
 router.beforeEach(async (to) => {
-  if (to.meta.public) return true
-  if (!getToken()) return { name: 'login', query: { redirect: to.fullPath } }
   const auth = useAuthStore()
+  if (to.meta.public) {
+    // 公开页面：已登录则补全用户信息；令牌失效时按未登录处理
+    if (getToken() && !auth.user) {
+      try {
+        await auth.fetchMe()
+      } catch {
+        auth.logout()
+      }
+    }
+    return true
+  }
+  if (!getToken()) return { name: 'login', query: { redirect: to.fullPath } }
   if (!auth.user) {
     try {
       await auth.fetchMe()

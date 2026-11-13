@@ -11,8 +11,9 @@ import { useFloating } from '@/lib/useFloating'
 import AppLauncher from '@/components/home/AppLauncher.vue'
 import ThemePicker from '@/components/home/ThemePicker.vue'
 
-/** minimal：首页使用的极简顶栏（最近对话/成果入口在页面中央的快捷入口里） */
-defineProps<{ title?: string | null; minimal?: boolean }>()
+/** minimal：首页使用的极简顶栏（最近对话/成果入口在页面中央的快捷入口里）
+ *  landing：首页落地页模式——浮在页面上，滚动离开首屏后变为不透明，并显示介绍区块导航 */
+defineProps<{ title?: string | null; minimal?: boolean; landing?: boolean }>()
 const auth = useAuthStore()
 const prefs = usePrefsStore()
 const ui = useUiStore()
@@ -28,10 +29,30 @@ function logout() {
   router.replace({ name: 'login' })
 }
 const initial = () => (auth.displayName || 'U').slice(0, 1).toUpperCase()
+
+const NAV = [
+  { id: 'features', label: '功能亮点' },
+  { id: 'how', label: '工作方式' },
+  { id: 'scenarios', label: '使用场景' },
+  { id: 'security', label: '安全可信' },
+  { id: 'faq', label: '常见问题' },
+]
+function goSection(id: string) {
+  document.getElementById(id)?.scrollIntoView({
+    behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+    block: 'start',
+  })
+}
 </script>
 
 <template>
-  <header class="relative z-30 flex h-14 shrink-0 items-center gap-2 px-4 md:px-6">
+  <header
+    class="z-40 flex h-14 shrink-0 items-center gap-2 px-4 transition-[background-color,box-shadow,backdrop-filter] duration-300 md:px-6"
+    :class="[
+      landing ? '' : 'relative',
+      landing && ui.landingScrolled ? 'landing-header-solid' : '',
+    ]"
+  >
     <!-- 回到新对话首页不会停止其他会话的任务 -->
     <RouterLink to="/" class="flex items-center gap-2 rounded-lg" aria-label="云搜浏览器，回到新对话">
       <BrandLogo :size="28" />
@@ -42,6 +63,23 @@ const initial = () => (auth.displayName || 'U').slice(0, 1).toUpperCase()
       <span class="truncate text-slate-300">{{ title }}</span>
     </div>
     <div class="flex-1" />
+    <nav
+      v-if="landing && ui.landingScrolled"
+      class="absolute left-1/2 hidden -translate-x-1/2 items-center gap-1 lg:flex"
+      aria-label="产品介绍导航"
+    >
+      <button
+        v-for="n in NAV"
+        :key="n.id"
+        type="button"
+        class="rounded-full px-3 py-1.5 text-sm transition"
+        :class="ui.activeSection === n.id ? 'bg-brand-500/12 font-medium text-brand-300' : 'text-slate-300 hover:text-white'"
+        :aria-current="ui.activeSection === n.id ? 'true' : undefined"
+        @click="goSection(n.id)"
+      >
+        {{ n.label }}
+      </button>
+    </nav>
     <template v-if="!minimal">
       <RouterLink v-if="title" to="/" class="btn-ghost btn-sm hidden sm:inline-flex" aria-label="新对话">
         <Plus class="h-4 w-4" /> 新对话
@@ -53,7 +91,7 @@ const initial = () => (auth.displayName || 'U').slice(0, 1).toUpperCase()
         <FileText class="h-4 w-4" /><span class="hidden sm:inline">我的成果</span>
       </RouterLink>
     </template>
-    <ThemePicker v-if="minimal" />
+    <ThemePicker v-if="minimal && !(landing && ui.landingScrolled)" />
     <button
       class="icon-btn"
       :aria-label="prefs.theme === 'dark' ? '切换到浅色主题' : '切换到深色主题'"
@@ -63,6 +101,12 @@ const initial = () => (auth.displayName || 'U').slice(0, 1).toUpperCase()
       <Sun v-if="prefs.theme === 'dark'" class="h-[18px] w-[18px]" />
       <Moon v-else class="h-[18px] w-[18px]" />
     </button>
+    <template v-if="!auth.user">
+      <!-- 未登录访客：登录 / 免费开始 -->
+      <RouterLink :to="{ name: 'login', query: { redirect: '/' } }" class="btn-ghost btn-sm">登录</RouterLink>
+      <RouterLink :to="{ name: 'login', query: { redirect: '/', tab: 'register' } }" class="btn-primary btn-sm">免费开始</RouterLink>
+    </template>
+    <template v-else>
     <RouterLink to="/settings" class="icon-btn" aria-label="设置" title="设置"><Settings class="h-[18px] w-[18px]" /></RouterLink>
     <AppLauncher />
     <div ref="menuRoot">
@@ -76,6 +120,7 @@ const initial = () => (auth.displayName || 'U').slice(0, 1).toUpperCase()
         {{ initial() }}
       </button>
     </div>
+    </template>
     <Teleport to="body">
       <div v-if="menuOpen" ref="menuEl" role="menu" class="popover-menu w-52" :style="menuStyle" @click="menuOpen = false">
         <div class="hairline flex items-center gap-2 border-b px-3 py-2 text-sm">
@@ -101,6 +146,6 @@ const initial = () => (auth.displayName || 'U').slice(0, 1).toUpperCase()
         </button>
       </div>
     </Teleport>
-    <HistoryDrawer :open="ui.historyOpen" @close="ui.closeHistory()" />
+    <HistoryDrawer v-if="auth.user" :open="ui.historyOpen" @close="ui.closeHistory()" />
   </header>
 </template>
