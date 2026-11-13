@@ -13,7 +13,44 @@ from urllib.parse import urlsplit, urlunsplit
 from ..browser.pool import CloudBrowserSession
 from ..core.config import get_settings
 from ..contracts import SearchHit, SearchQuery
-from .engines import ENGINES, EngineBlocked, is_network_error, looks_relevant
+from .engines import ENGINES, EngineBlocked, SearchEngine, is_network_error, looks_relevant
+from .sources import build_sources
+
+_registry_cache: tuple[int, dict[str, SearchEngine]] | None = None
+
+
+def all_engines() -> dict[str, SearchEngine]:
+    """内置引擎（duckduckgo/bing/baidu/sogou）+ 模板来源（google、垂直来源、用户自定义来源）。"""
+    global _registry_cache
+    custom = get_settings().search_custom_sources
+    key = hash(repr(custom))
+    if _registry_cache is None or _registry_cache[0] != key:
+        merged: dict[str, SearchEngine] = dict(build_sources(custom))
+        merged.update(ENGINES)
+        _registry_cache = (key, merged)
+    return {**_registry_cache[1], **ENGINES}  # 测试中替换 ENGINES 时也生效
+
+
+def vertical_sources() -> dict[str, SearchEngine]:
+    """可供规划选用的垂直来源。"""
+    allowed = get_settings().search_vertical_sources
+    out = {}
+    for name, e in all_engines().items():
+        cfg = getattr(e, "cfg", None)
+        if cfg is None or cfg.kind != "vertical":
+            continue
+        if allowed is None or name in allowed:
+            out[name] = e
+    return out
+
+
+def describe_sources() -> str:
+    """给搜索规划智能体看的来源说明。"""
+    s = get_settings()
+    lines = [f"通用搜索引擎（按优先级，source 留空时使用）：{', '.join(s.search_engines)}"]
+    for name, e in vertical_sources().items():
+        lines.append(f"- {name}：{e.cfg.label}。{e.cfg.description}")
+    return "\n".join(lines)
 
 log = logging.getLogger(__name__)
 
@@ -26,7 +63,8 @@ class EngineHealth:
 
     def available(self, names: list[str]) -> list[str]:
         now = time.monotonic()
-        return [n for n in names if n in ENGINES and self._blocked_until.get(n, 0) <= now]
+        reg = all_engines()
+        return [n for n in names if n in reg and self._blocked_until.get(n, 0) <= now]
 
     def block(self, name: str, seconds: float | None = None) -> None:
         self._blocked_until[name] = time.monotonic() + (seconds or get_settings().search_engine_cooldown_s)
@@ -68,17 +106,21 @@ async def browser_search(s: CloudBrowserSession, queries: list[str | SearchQuery
         if before_each:
             await before_each()  # 栅栏检查：停止后不再发起新搜索
         engines = health.available(settings.search_engines)
+        # 指定了垂直来源：优先用该来源，无结果/被拦截时回退到通用引擎
+        if sq.source and sq.source in vertical_sources() and health.available([sq.source]):
+            engines = [sq.source] + [e for e in engines if e != sq.source]
         if not engines:
             report.per_query[sq.query] = "所有搜索引擎暂时不可用（被拦截或网络不可达，冷却中）"
             report.hit_counts[sq.query] = 0
             continue
-        if settings.search_strategy == "rotate":
+        if settings.search_strategy == "rotate" and not sq.source:
             engines = engines[qi % len(engines):] + engines[: qi % len(engines)]
         got: list[SearchHit] = []
         for name in engines:
             try:
                 async with s.lock:
-                    got = await ENGINES[name].search(s, sq.query, per_query, lang=sq.language, recency=sq.recency)
+                    got = await all_engines()[name].search(s, sq.query, per_query, lang=sq.language,
+                                                           recency=sq.recency)
             except EngineBlocked:
                 health.block(name)
                 report.blocked_engines.append(name)

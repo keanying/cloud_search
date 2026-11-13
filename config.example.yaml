@@ -55,12 +55,25 @@ browser:
 
 # ---------------------------------------------------------------- 浏览器搜索（不使用搜索API）
 search:
-  # 引擎顺序（可选 duckduckgo / bing / baidu / sogou）。默认优先 DuckDuckGo；
-  # 被拦截、网络不可达或返回无关结果时自动换下一个。中国大陆网络访问 DuckDuckGo 通常需要设置 browser.proxy。
-  engines: [duckduckgo, bing, baidu, sogou]
+  # 通用引擎顺序（可选 duckduckgo / google / bing / baidu / sogou）。默认优先 DuckDuckGo；
+  # 被拦截、网络不可达或返回无关结果时自动换下一个。中国大陆网络访问 DuckDuckGo/Google 通常需要设置 browser.proxy。
+  engines: [duckduckgo, google, bing, baidu, sogou]
   strategy: priority            # priority：总是先用第一个，失败才换；rotate：每次查询轮换起始引擎分散负载
   engine_cooldown_s: 600        # 被验证码拦截后的冷却时间（秒）
   unreachable_cooldown_s: 300   # 网络不可达后的冷却时间（秒），避免每次都等超时
+  # 垂直来源：搜索规划会按意图为某些查询选择这些网站的站内搜索（无结果时回退到通用引擎）
+  # 内置：wikipedia_zh 中文维基、wikipedia_en 英文维基、baike 百度百科、weixin 微信公众号文章、github、arxiv 论文
+  vertical_sources:             # 留空 = 全部内置来源可用；例如只用两个：[baike, weixin]
+  # 自定义来源：任何有站内搜索的网站都可以加，{q} 为查询词。选择器用浏览器开发者工具查看结果列表的结构。
+  custom_sources: []
+  # custom_sources:
+  #   - name: gov_cn
+  #     label: 中国政府网
+  #     description: 国家政策、法规、官方通知
+  #     url: https://sousuo.www.gov.cn/sousuo/search.shtml?code=17da70961a7&searchWord={q}
+  #     item: .middle_result_con li        # 每条结果的容器
+  #     link: a                              # 容器内的链接
+  #     snippet: .res_text                   # 容器内的摘要（可选）
   results_per_query: 8
 
 # ---------------------------------------------------------------- 单个任务的上限

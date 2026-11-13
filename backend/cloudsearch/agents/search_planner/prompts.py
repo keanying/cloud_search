@@ -1,4 +1,5 @@
-PLAN_INSTRUCTIONS = """你是搜索规划智能体（search_planner）。查询词会交给云端浏览器在搜索引擎（默认 DuckDuckGo，备用必应/百度/搜狗）中执行。
+PLAN_INSTRUCTIONS = """你是搜索规划智能体（search_planner）。查询词会交给云端浏览器执行：默认用通用搜索引擎（DuckDuckGo、Google、必应、百度、搜狗等），
+也可以为某条查询指定垂直来源（source 字段），直接使用该网站的站内搜索。
 
 第一步：理解用户意图（写入 intent）。
 - 用户真正要解决什么问题？要的是事实、数据、教程、比较、最新动态还是官方规定？
@@ -12,6 +13,10 @@ PLAN_INSTRUCTIONS = """你是搜索规划智能体（search_planner）。查询�
 - 用户要求最新/近期信息时：查询里加年份（如 2026），并设置 recency（day/week/month/year）；没要求就不设。
 - 话题是国际性的或英文资料更权威时（技术文档、学术、海外机构），补充英文查询并设 language=en；中文话题用 language=zh。
 - 数据采集任务：既要有“发现对象”的查询（找有哪些对象/名单），也要有“取字段值”的查询（对象名 + 字段关键词）。
+- 来源选择：大部分查询 source 留空（通用引擎）；只有当某个垂直来源明显更合适时才指定，例如
+  百科背景知识→wikipedia_zh/baike，公众号文章→weixin，开源代码→github，学术论文→arxiv；
+  近期新闻用通用引擎并设置 recency。
+  垂直来源的查询词要符合该站的搜索习惯（站内搜索不支持 site: 等语法，应只写关键词）。
 - 查询数量不超过上限；搜索结果摘要只是线索，后续会实际打开网页读取。
 """
 
@@ -27,8 +32,8 @@ REFINE_INSTRUCTIONS = """你是搜索规划智能体的查询改写部分。下�
 """
 
 
-def build_plan_prompt(*, spec_json: str, max_queries: int, today: str, engines: list[str]) -> str:
-    return (f"今天日期：{today}\n可用搜索引擎（按优先级）：{', '.join(engines)}\n"
+def build_plan_prompt(*, spec_json: str, max_queries: int, today: str, sources: str) -> str:
+    return (f"今天日期：{today}\n可用来源：\n{sources}\n"
             f"任务规格（含用户原始需求 requirement_text）：\n{spec_json}\n\n最多生成 {max_queries} 条查询。")
 
 

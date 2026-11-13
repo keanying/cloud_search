@@ -180,11 +180,14 @@ class Settings(BaseSettings):
     browser_allow_private_network: bool = False
 
     # 浏览器搜索：引擎顺序与被拦截后的冷却时间
-    search_engines: list[str] = ["duckduckgo", "bing", "baidu", "sogou"]
+    search_engines: list[str] = ["duckduckgo", "google", "bing", "baidu", "sogou"]
     # priority：总是优先第一个引擎，失败才换下一个；rotate：轮换起始引擎分散负载
     search_strategy: str = "priority"
     search_engine_cooldown_s: int = 600
     search_unreachable_cooldown_s: int = 300
+    # 可供搜索规划选用的垂直来源（None = 全部内置来源）与用户自定义来源（见 search/sources.py SourceConfig）
+    search_vertical_sources: list[str] | None = None
+    search_custom_sources: list[dict] = []
     search_results_per_query: int = 8
 
     # 单个任务的上限（模型给出的计划会被截断到这些值以内）

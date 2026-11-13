@@ -87,6 +87,8 @@ class SearchQuery(BaseModel):
     language: Literal["zh", "en"] = Field(default="zh", description="结果语言/地区：zh 中文，en 英文")
     recency: Literal["day", "week", "month", "year"] | None = Field(
         default=None, description="只在用户明确要求最新/近期信息时填写")
+    source: str | None = Field(default=None, description="可选：指定垂直来源名称（如 wikipedia_zh、weixin、arxiv）；"
+                                                         "留空使用通用搜索引擎")
 
 
 class SearchHit(BaseModel):

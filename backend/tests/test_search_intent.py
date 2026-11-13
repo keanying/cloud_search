@@ -147,3 +147,75 @@ async def test_engine_priority_and_unreachable_cooldown(env, monkeypatch):
 
 async def _noop():
     return None
+
+
+# ---------------------------------------------------------------- 垂直来源
+CUSTOM_PAGE = """<html><body><ul class="res">
+<li class="r"><a class="t" href="/policy/1.html">关于博物馆开放管理的通知</a><p class="s">各地博物馆实行预约开放</p></li>
+<li class="r"><a class="t" href="https://other.gov.cn/2">文旅部发布暑期参观指引</a><p class="s">暑期错峰</p></li>
+</ul></body></html>"""
+
+
+async def test_custom_source_from_config_parses_results(env, monkeypatch, tmp_path):
+    from playwright.async_api import async_playwright
+
+    from cloudsearch.browser.launch import resolve
+    from cloudsearch.core import config
+    from cloudsearch.search import service
+
+    choice = resolve()
+    if choice["mode"] in ("missing", "error"):
+        pytest.skip("无可用浏览器")
+    (tmp_path / "c.yaml").write_text("""
+search:
+  custom_sources:
+    - name: gov_test
+      label: 政府网测试
+      description: 官方政策
+      url: https://example.gov.cn/search?q={q}
+      item: li.r
+      link: a.t
+      snippet: p.s
+""", encoding="utf-8")
+    monkeypatch.setenv("CS_CONFIG_FILE", str(tmp_path / "c.yaml"))
+    config.get_settings.cache_clear()
+    assert "gov_test" in service.vertical_sources() and "政府网测试" in service.describe_sources()
+    src = service.all_engines()["gov_test"]
+
+    class Sess:  # 只用到 page / goto / capture_frame
+        def __init__(self, page):
+            self.page = page
+
+        async def goto(self, url, **kw):
+            assert url == "https://example.gov.cn/search?q=%E5%8D%9A%E7%89%A9%E9%A6%86+%E5%BC%80%E6%94%BE"
+            await self.page.set_content(CUSTOM_PAGE)
+
+        async def capture_frame(self, **kw):
+            pass
+
+    async with async_playwright() as p:
+        b = await p.chromium.launch(**choice["launch_kwargs"])
+        page = await b.new_page()
+        await page.goto("about:blank")
+        hits = await src.search(Sess(page), "博物馆 开放", 5)
+        await b.close()
+    assert [h.title for h in hits] == ["关于博物馆开放管理的通知", "文旅部发布暑期参观指引"]
+    assert hits[0].url.endswith("/policy/1.html") and hits[0].snippet == "各地博物馆实行预约开放"
+    config.get_settings.cache_clear()
+
+
+async def test_planner_source_validation(client, fake_llm, fake_browser):
+    fake_llm.plan_output = {
+        "intent": "了解故宫背景与公众号上的参观攻略", "key_entities": ["故宫博物院"], "preferred_sources": [],
+        "queries": [
+            {"query": "site:baike.baidu.com \"故宫博物院\"", "purpose": "百科", "language": "zh", "source": "baike"},
+            {"query": "故宫 参观攻略", "purpose": "公众号", "language": "zh", "source": "weixin"},
+            {"query": "故宫 开放时间", "purpose": "通用", "language": "zh", "source": "made_up_source"},
+        ]}
+    h = await register(client)
+    await _run_task(client, h, fake_llm)
+    by_purpose = {q.purpose: q for q in fake_browser.queries}
+    assert by_purpose["百科"].source == "baike" and by_purpose["百科"].query == "故宫博物院"  # 站内搜索去掉语法
+    assert by_purpose["公众号"].source == "weixin"
+    assert by_purpose["通用"].source is None  # 未知来源 → 通用引擎
+    assert "wikipedia_zh" in fake_llm.prompts["search_planner"][0]  # 规划时告知了可用来源

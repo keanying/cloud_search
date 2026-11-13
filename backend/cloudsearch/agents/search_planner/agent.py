@@ -5,7 +5,7 @@ from datetime import date
 from urllib.parse import urlsplit
 
 from ...contracts import SearchHit, SearchQuery, TaskSpec
-from ...core.config import get_settings
+from ...search.service import describe_sources, vertical_sources
 from ..base import AgentRole, AgentSpec, ExecContext, run_agent
 from .prompts import (
     PLAN_INSTRUCTIONS,
@@ -74,7 +74,13 @@ async def plan_queries(spec: TaskSpec, ctx: ExecContext) -> QueryPlan:
     plan = await run_agent(SPEC, build_plan_prompt(spec_json=spec.model_dump_json(indent=1),
                                                    max_queries=spec.limits.max_queries,
                                                    today=date.today().isoformat(),
-                                                   engines=get_settings().search_engines), ctx=ctx)
+                                                   sources=describe_sources()), ctx=ctx)
+    valid_sources = set(vertical_sources())
+    for q in plan.queries:  # 未知来源 → 通用引擎；垂直来源不支持 site: 等语法
+        if q.source and q.source not in valid_sources:
+            q.source = None
+        if q.source:
+            q.query = re.sub(r'(-?site:\S+|["“”])', " ", q.query).strip() or q.query
     plan.queries = _ensure_coverage(spec, plan)
     plan.preferred_sources = [d.lower().strip().lstrip(".") for d in plan.preferred_sources if "." in d][:8]
     return plan
