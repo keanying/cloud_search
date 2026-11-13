@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -111,18 +112,22 @@ class TaskExecContext:
             return reused
         await self.check()
         step_id = new_id("step")
-        async with session_scope() as s:
-            attempt = (await s.execute(select(func.count()).select_from(TaskStep).where(
-                TaskStep.task_id == self.task_id, TaskStep.node_id == node_id,
-                TaskStep.cancel_generation == self.cancel_generation))).scalar_one() + 1
-            s.add(TaskStep(step_id=step_id, task_id=self.task_id, run_id=self.run_id, node_id=node_id[:128],
-                           node_kind=node_kind, agent_role=agent_role, step_status="running",
-                           cancel_generation=self.cancel_generation, attempt_no=attempt,
-                           lease_epoch=self.lease_epoch, input_json=input_json, started_time=utcnow()))
         try:
+            async with session_scope() as s:
+                attempt = (await s.execute(select(func.count()).select_from(TaskStep).where(
+                    TaskStep.task_id == self.task_id, TaskStep.node_id == node_id,
+                    TaskStep.cancel_generation == self.cancel_generation))).scalar_one() + 1
+                s.add(TaskStep(step_id=step_id, task_id=self.task_id, run_id=self.run_id, node_id=node_id[:128],
+                               node_kind=node_kind, agent_role=agent_role, step_status="running",
+                               cancel_generation=self.cancel_generation, attempt_no=attempt,
+                               lease_epoch=self.lease_epoch, input_json=input_json, started_time=utcnow()))
             result = await fn(self.for_step(step_id))
         except TaskInterrupted:
             await self._finish_step(step_id, "cancelled", error_code="interrupted")
+            raise
+        except asyncio.CancelledError:
+            # 并发兄弟节点因停止被取消：收尾记录后继续传播取消
+            await self._finish_step(step_id, "cancelled", error_code="cancelled")
             raise
         except LeaseLost:
             raise
@@ -146,10 +151,23 @@ class TaskExecContext:
         except (TaskInterrupted, LeaseLost):
             await self._finish_step(step_id, "cancelled", error_code="late_result_quarantined")
             raise
+        except asyncio.CancelledError:
+            await self._finish_step(step_id, "cancelled", error_code="cancelled")
+            raise
         return result.output
 
     async def _finish_step(self, step_id: str, status: str, *, error_code: str | None = None,
                            error_desc: str | None = None) -> None:
+        """收尾记录必须落库：即使当前协程正被取消，也等待这次短事务完成后再传播取消。"""
+        inner = asyncio.ensure_future(self._finish_step_now(step_id, status, error_code, error_desc))
+        try:
+            await asyncio.shield(inner)
+        except asyncio.CancelledError:
+            await inner
+            raise
+
+    async def _finish_step_now(self, step_id: str, status: str, error_code: str | None,
+                               error_desc: str | None) -> None:
         async with session_scope() as s:
             row = await s.get(TaskStep, step_id)
             if row and row.step_status == "running":

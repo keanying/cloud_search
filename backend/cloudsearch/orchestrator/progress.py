@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections import defaultdict
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..agents.coordinator import STAGE_LABELS, stages_for
-from ..db.base import session_scope
+from ..db.base import is_mysql, session_scope
 from ..db.models import Task
 from ..services.events import publish_message, publish_task, task_output_messages, upsert_part
 
 COUNTER_KEYS = ("queries", "candidates", "sources_read", "sources_failed", "evidence")
+
+# 同一任务的进度更新串行化（读-改-写 JSON 摘要，避免并发读取/抽取时丢失计数）
+_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 
 def task_stages(t: Task) -> list[str]:
@@ -50,8 +56,11 @@ async def project_task(s: AsyncSession, t: Task, *, task_event: str | None = Non
 async def update_progress(task_id: str, *, stage: str | None = None, stage_status: str | None = None,
                           inc: dict[str, int] | None = None, browser_available: bool | None = None,
                           extra_parts: list[dict] | None = None) -> None:
-    async with session_scope() as s:
-        t = await s.get(Task, task_id)
+    async with _locks[task_id], session_scope() as s:
+        q = select(Task).where(Task.task_id == task_id)
+        if is_mysql():
+            q = q.with_for_update()  # 跨进程时的行锁
+        t = (await s.execute(q)).scalar()
         if t is None:
             return
         summary = dict(t.result_summary or {})

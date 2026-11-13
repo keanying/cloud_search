@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     auto_create_tables: bool = True
 
     # JWT 签名密钥与 API Key 加密主密钥（Fernet，urlsafe base64 32字节）。生产必须显式配置。
-    secret_key: str = "dev-secret-change-me"
+    secret_key: str = "dev-only-secret-change-me-in-production-0123456789"
     master_key: str = ""
     access_token_minutes: int = 60 * 24
     allow_registration: bool = True
