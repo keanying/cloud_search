@@ -19,7 +19,9 @@
 | uv（可选） | 最新 | `pip install uv`，有则按 uv.lock 锁定版本且安装更快；没有则自动用 pip |
 | MySQL 8（可选） | 8.0+ | 本地开发默认用 SQLite，零安装；生产用 MySQL |
 
-以下由启动脚本**自动安装到项目目录内**，无需手动处理：Python 依赖（`cloud_search/.venv`）、Chromium 浏览器（`cloud_search/.playwright`）、前端依赖（`web/node_modules`）与打包产物（`web/dist`）。所有依赖都有 Windows 预编译包，不需要 C/C++ 编译器。
+以下由启动脚本**自动安装到项目目录内**，无需手动处理：Python 依赖（`cloud_search/.venv`）、前端依赖（`web/node_modules`）与打包产物（`web/dist`）。所有依赖都有 Windows 预编译包，不需要 C/C++ 编译器。
+
+**浏览器**：默认 `browser.channel: auto`——Windows 直接使用系统自带的 **Microsoft Edge**（或已安装的 Chrome），不需要下载；只有找不到可用浏览器时（如 Linux 服务器）才下载 Playwright 自带 Chromium 到 `cloud_search/.playwright`。
 
 ## 一键启动
 
@@ -42,7 +44,15 @@ start.bat --rebuild      强制重装依赖并重新打包
 start.bat --port 8001    临时换端口
 ```
 
-国内网络：在 `config.yaml` 的 `install` 分区填写 pip / npm / Playwright 镜像地址（模板里有示例）。
+**多下载源自动切换**：安装前会并发测速，按从快到慢依次尝试，某个源失败或卡住（20 秒无数据）自动换下一个：
+
+| 下载内容 | 候选源 |
+|---|---|
+| Python 包 | 官方 PyPI、清华、阿里云、腾讯云、华为云 |
+| 前端包 | 官方 npm、阿里云 npmmirror、腾讯云、华为云 |
+| Chromium | 官方、阿里云 npmmirror、华为云（清华/腾讯无此镜像） |
+
+Python 依赖从 `requirements.txt` 安装（由 `uv.lock` 导出，**锁定版本和文件哈希**，任何镜像下载到的文件都必须与官方一致）。也可以在 `config.yaml` 的 `install` 分区指定只用哪些源。修改依赖后重新导出：`uv lock && uv export --frozen --no-emit-project --all-groups -o requirements.txt`。
 
 首次使用：**第一个注册的账号是管理员**。在 `config.yaml` 的 `llm` 分区配置大模型（或在页面“管理后台 → 大模型”中添加），至少绑定 `default` 角色即可开始提问。
 
@@ -55,10 +65,10 @@ start.bat --port 8001    临时换端口
 | `server` | 监听地址与端口 |
 | `database` | `type: sqlite/mysql`、MySQL 连接信息、是否自动建表 |
 | `security` | JWT 密钥、API Key 加密主密钥、是否开放注册 |
-| `browser` / `search` | 云端浏览器（无头、代理、并发）与搜索引擎顺序、冷却 |
+| `browser` / `search` | 云端浏览器（内核 auto/Edge/Chrome/自带、无头、代理、并发）与搜索引擎顺序、冷却 |
 | `task` / `worker` | 单任务上限、执行器（内嵌/独立、进程数、并发） |
 | `storage` | 文件存储目录 |
-| `install` | 安装镜像源（pip / npm / Playwright） |
+| `install` | 下载源（留空自动测速选择；可指定 pip / npm / Chromium 源列表） |
 | `llm` | 大模型供应方、模型、单价、8 个智能体的模型绑定（启动时同步进数据库） |
 
 优先级：环境变量 `CS_*` > `config.yaml` > 默认值。写错键名会在启动时报错并指出是哪一项。

@@ -168,6 +168,9 @@ class Settings(BaseSettings):
 
     # 云端浏览器
     browser_headless: bool = True
+    # 浏览器内核：auto（已装自带 Chromium 则用，否则用系统 Edge/Chrome）/ bundled / msedge / chrome
+    browser_channel: str = "auto"
+    browser_executable_path: str | None = None
     browser_proxy: str | None = Field(default_factory=lambda: os.environ.get("HTTPS_PROXY") or None)
     browser_max_contexts: int = 4
     browser_nav_timeout_ms: int = 30000

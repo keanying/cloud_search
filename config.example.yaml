@@ -41,6 +41,11 @@ security:
 # ---------------------------------------------------------------- 云端浏览器
 browser:
   headless: true                # 调试时可改 false 看到浏览器窗口（仅本机）
+  # 浏览器内核：auto = 已下载自带 Chromium 就用它，否则直接用系统已安装的 Edge（Windows 自带）或 Chrome，无需下载；
+  #             都没有时（例如 Linux 服务器）才自动从多个源下载 Chromium
+  #             bundled = 只用自带 Chromium（会自动下载）；msedge / chrome = 指定系统浏览器
+  channel: auto
+  executable_path:              # 可选：指定浏览器 exe 的完整路径，填写后优先
   proxy:                        # 出网代理，例如 http://127.0.0.1:7890；留空直连
   max_contexts: 4               # 同时打开的浏览器上下文上限（每个约 150-300MB 内存）
   nav_timeout_ms: 30000
@@ -75,11 +80,18 @@ storage:
   dir: backend/data/storage     # 来源正文、截图、导出文件（相对仓库根目录）
 
 # ---------------------------------------------------------------- 安装源（仅 run.py / 服务器脚本安装依赖时使用）
-# 国内网络建议打开下面三行镜像；留空使用官方源
+# 留空 = 自动测速：并发测试各源延迟，按从快到慢依次尝试，某个源失败或卡住会自动换下一个。
+#   Python 包：官方 PyPI、清华、阿里云、腾讯云、华为云
+#   前端包：  官方 npm、阿里云 npmmirror、腾讯云、华为云
+#   Chromium：官方、阿里云 npmmirror、华为云（清华/腾讯没有该镜像）
+# 也可以指定只用哪些源及顺序，例如：
+#   pip_index_urls: [https://pypi.tuna.tsinghua.edu.cn/simple, https://mirrors.aliyun.com/pypi/simple]
+#   npm_registries: [https://registry.npmmirror.com]
+#   playwright_download_hosts: [https://cdn.npmmirror.com/binaries/playwright]
 install:
-  pip_index_url:                # 例：https://pypi.tuna.tsinghua.edu.cn/simple
-  npm_registry:                 # 例：https://registry.npmmirror.com
-  playwright_download_host:     # 例：https://cdn.npmmirror.com/binaries/playwright
+  pip_index_urls: []
+  npm_registries: []
+  playwright_download_hosts: []
 
 # ---------------------------------------------------------------- 大模型（可选，也可在页面“管理后台 → 大模型”中配置）
 # 启动时同步进数据库：这里列出的供应方/模型/绑定以本文件为准；页面上另外添加的不受影响。

@@ -26,6 +26,7 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 import webbrowser
 from pathlib import Path
@@ -80,27 +81,133 @@ def stamp_ok(stamp: Path, value: str) -> bool:
     return stamp.exists() and stamp.read_text(encoding="utf-8").strip() == value
 
 
-# ------------------------------------------------------------------ 安装源（读取 config.yaml 的 install 分区，无需 yaml 库）
-def install_options() -> dict[str, str]:
-    """从 config.yaml 中读取 install 分区的简单键值（pip_index_url / npm_registry / playwright_download_host）。"""
-    opts: dict[str, str] = {}
+# ------------------------------------------------------------------ 多下载源（自动测速，失败/超时自动换下一个）
+PIP_SOURCES = [
+    ("官方 PyPI", "https://pypi.org/simple"),
+    ("清华大学", "https://pypi.tuna.tsinghua.edu.cn/simple"),
+    ("阿里云", "https://mirrors.aliyun.com/pypi/simple"),
+    ("腾讯云", "https://mirrors.cloud.tencent.com/pypi/simple"),
+    ("华为云", "https://repo.huaweicloud.com/repository/pypi/simple"),
+]
+NPM_SOURCES = [
+    ("官方 npm", "https://registry.npmjs.org"),
+    ("阿里云 npmmirror", "https://registry.npmmirror.com"),
+    ("腾讯云", "https://mirrors.cloud.tencent.com/npm"),
+    ("华为云", "https://repo.huaweicloud.com/repository/npm"),
+]
+# Chromium：清华/腾讯没有镜像 Playwright 浏览器包
+PW_SOURCES = [
+    ("官方", "https://cdn.playwright.dev"),
+    ("阿里云 npmmirror", "https://cdn.npmmirror.com/binaries/playwright"),
+    ("华为云", "https://mirrors.huaweicloud.com/playwright"),
+]
+INSTALL_TIMEOUT_S = 30 * 60  # 单个源的整体安装超时
+
+
+def install_options() -> dict[str, list[str]]:
+    """读取 config.yaml 的 install 分区（无需 yaml 库）。支持：key: url / key: [a, b] / key: 换行 - a。"""
+    opts: dict[str, list[str]] = {}
     cfg = ROOT / "config.yaml"
     if not cfg.exists():
         return opts
-    in_section = False
+    in_section, current = False, None
     for raw in cfg.read_text(encoding="utf-8").splitlines():
-        line = raw.split("#", 1)[0].rstrip()
+        line = raw.split(" #", 1)[0].rstrip() if not raw.lstrip().startswith("#") else ""
         if not line.strip():
             continue
         if not raw.startswith((" ", "\t")):
-            in_section = line.strip() == "install:"
+            in_section, current = line.strip() == "install:", None
             continue
-        if in_section and ":" in line:
-            k, v = line.strip().split(":", 1)
-            v = v.strip().strip("'\"")
-            if v:
-                opts[k.strip()] = v
+        if not in_section:
+            continue
+        item = line.strip()
+        if item.startswith("- ") and current:
+            opts.setdefault(current, []).append(item[2:].strip().strip("'\""))
+            continue
+        if ":" in item:
+            k, v = item.split(":", 1)
+            current, v = k.strip(), v.strip()
+            if v.startswith("[") and v.endswith("]"):
+                opts[current] = [x.strip().strip("'\"") for x in v[1:-1].split(",") if x.strip()]
+            elif v:
+                opts[current] = [v.strip("'\"")]
+    # 兼容单数写法
+    for single, plural in (("pip_index_url", "pip_index_urls"), ("npm_registry", "npm_registries"),
+                           ("playwright_download_host", "playwright_download_hosts")):
+        if single in opts:
+            opts.setdefault(plural, []).extend(opts.pop(single))
     return opts
+
+
+def _probe(url: str, timeout: float = 5.0) -> float | None:
+    """测连通与延迟：能收到任何 HTTP 响应即视为可达。"""
+    t0 = time.monotonic()
+    try:
+        req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "cloudsearch-installer"})
+        urllib.request.urlopen(req, timeout=timeout).close()
+    except urllib.error.HTTPError:
+        pass  # 4xx/5xx 也说明网络可达
+    except Exception:  # noqa: BLE001
+        return None
+    return time.monotonic() - t0
+
+
+def order_sources(kind: str, defaults: list[tuple[str, str]], configured: list[str], probe_path: str = "") \
+        -> list[tuple[str, str]]:
+    """config.yaml 指定了源则按指定顺序；否则并发测速，从快到慢排列（不可达的放最后仍会尝试）。"""
+    if configured:
+        names = {u.rstrip("/"): n for n, u in defaults}
+        return [(names.get(u.rstrip("/"), "自定义"), u.rstrip("/")) for u in configured]
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(len(defaults)) as ex:
+        lat = list(ex.map(lambda s: _probe(s[1] + probe_path), defaults))
+    ranked = sorted(zip(defaults, lat), key=lambda x: (x[1] is None, x[1] or 0))
+    desc = "，".join(f"{n} {'%.0fms' % (t * 1000) if t is not None else '不可达'}" for (n, _), t in ranked)
+    info(f"{kind}下载源测速：{desc}")
+    return [s for s, _ in ranked]
+
+
+def run_try(cmd: list, *, cwd: Path = ROOT, env: dict | None = None, timeout: float = INSTALL_TIMEOUT_S) -> bool:
+    """执行命令，失败或超时返回 False（超时会结束整个进程树）。"""
+    info("$ " + " ".join(str(c) for c in cmd))
+    kw: dict = {"cwd": str(cwd), "env": {**os.environ, **(env or {})}}
+    if IS_WIN:
+        kw["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+    else:
+        kw["start_new_session"] = True
+    p = subprocess.Popen([str(c) for c in cmd], **kw)
+    try:
+        return p.wait(timeout=timeout) == 0
+    except KeyboardInterrupt:
+        _kill_tree(p)
+        raise
+    except subprocess.TimeoutExpired:
+        info(f"超过 {int(timeout // 60)} 分钟未完成，终止")
+        _kill_tree(p)
+        return False
+
+
+def _kill_tree(p: subprocess.Popen) -> None:
+    if IS_WIN:
+        subprocess.call(["taskkill", "/T", "/F", "/PID", str(p.pid)], stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL)
+    else:
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except OSError:
+            p.kill()
+    p.wait()
+
+
+def try_sources(kind: str, sources: list[tuple[str, str]], attempt) -> None:
+    for i, (name, url) in enumerate(sources):
+        info(f"[{i + 1}/{len(sources)}] 使用 {name}：{url}")
+        if attempt(url):
+            return
+        if i + 1 < len(sources):
+            info(f"{name} 下载失败，改用下一个源…")
+    fail(f"{kind}：所有下载源都失败了", "请检查网络/代理；或在 config.yaml 的 install 分区指定可用的源后重试")
 
 
 # ------------------------------------------------------------------ 各步骤
@@ -119,43 +226,67 @@ def ensure_config() -> None:
         step("已根据 config.example.yaml 生成 config.yaml（数据库、密钥、大模型等请在此文件中维护）")
 
 
-def ensure_venv(force: bool, opts: dict[str, str]) -> None:
+def ensure_venv(force: bool, opts: dict[str, list[str]]) -> None:
+    """依赖版本与文件哈希锁定在 requirements.txt（由 uv.lock 导出），因此可以安全地从任一镜像下载。"""
     step("准备 Python 环境（仓库根目录 .venv）")
-    want = file_hash(ROOT / "pyproject.toml", ROOT / "uv.lock")
+    req = ROOT / "requirements.txt"
+    want = file_hash(ROOT / "pyproject.toml", req)
     stamp = VENV / ".cloudsearch-deps"
     if not force and VENV_PY.exists() and stamp_ok(stamp, want):
         info("依赖已是最新，跳过")
         return
-    env = {}
-    if opts.get("pip_index_url"):
-        env.update(PIP_INDEX_URL=opts["pip_index_url"], UV_INDEX_URL=opts["pip_index_url"],
-                   UV_DEFAULT_INDEX=opts["pip_index_url"])
     uv = shutil.which("uv")
-    if uv:
-        info("使用 uv 按 uv.lock 安装（版本锁定）")
-        run([uv, "sync", "--frozen", "--no-dev", "--python", sys.executable], env=env)
-    else:
-        if not VENV_PY.exists():
+    if not VENV_PY.exists():
+        if uv:
+            run([uv, "venv", str(VENV), "--python", sys.executable, "--seed"])
+        else:
             run([sys.executable, "-m", "venv", str(VENV)])
-        info("未检测到 uv，使用 pip 安装（安装 uv 可更快且版本锁定：pip install uv）")
-        run([VENV_PY, "-m", "pip", "install", "--upgrade", "pip"], env=env)
-        run([VENV_PY, "-m", "pip", "install", "-e", "."], env=env)
+    sources = order_sources("Python 包", PIP_SOURCES, opts.get("pip_index_urls", []), "/pip/")
+
+    def attempt(index: str) -> bool:
+        host = index.split("/")[2]
+        if uv:
+            env = {"UV_HTTP_TIMEOUT": "60", "UV_CONCURRENT_DOWNLOADS": "8"}
+            base = [uv, "pip", "install", "--python", str(VENV_PY), "--index-url", index]
+            return (run_try(base + ["--require-hashes", "-r", str(req)], env=env)
+                    and run_try(base + ["--no-deps", "-e", "."], env=env))
+        base = [VENV_PY, "-m", "pip", "install", "--disable-pip-version-check", "--timeout", "30", "--retries", "2",
+                "-i", index, "--trusted-host", host]
+        # 本项目以可编辑方式安装（构建工具 hatchling 也从同一个源获取）
+        return run_try(base + ["--require-hashes", "-r", str(req)]) and run_try(base + ["--no-deps", "-e", "."])
+
+    try_sources("安装 Python 依赖", sources, attempt)
     stamp.write_text(want, encoding="utf-8")
 
 
-def ensure_chromium(opts: dict[str, str]) -> None:
-    step("准备云端浏览器 Chromium")
-    browsers = Path(os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or PW_DIR)
-    if browsers.is_dir() and any(p.name.startswith("chromium") for p in browsers.iterdir()):
-        info(f"已安装：{browsers}")
+def browser_choice() -> dict:
+    out = subprocess.check_output([str(VENV_PY), "-m", "cloudsearch.browser.launch"], cwd=str(ROOT), text=True,
+                                  encoding="utf-8", env={**os.environ, "PYTHONUTF8": "1"})
+    return json.loads(out.strip().splitlines()[-1])
+
+
+def ensure_chromium(opts: dict[str, list[str]]) -> None:
+    step("准备云端浏览器")
+    if "PLAYWRIGHT_BROWSERS_PATH" not in os.environ:
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(PW_DIR)
+    choice = browser_choice()
+    if choice["mode"] == "error":
+        fail(choice["detail"])
+    if choice["mode"] != "missing":
+        info(f"使用：{choice['detail']}（无需下载）")
         return
-    env = {"PLAYWRIGHT_BROWSERS_PATH": str(browsers)}
-    if opts.get("playwright_download_host"):
-        env["PLAYWRIGHT_DOWNLOAD_HOST"] = opts["playwright_download_host"]
+    info("未找到可用浏览器，下载 Playwright 自带 Chromium（约 200MB）")
+    sources = order_sources("Chromium ", PW_SOURCES, opts.get("playwright_download_hosts", []))
     cmd = [VENV_PY, "-m", "playwright", "install", "chromium"]
     if not IS_WIN and sys.platform != "darwin" and hasattr(os, "geteuid") and os.geteuid() == 0:
         cmd.append("--with-deps")  # Linux root：顺带安装系统依赖库
-    run(cmd, env=env)
+
+    def attempt(host: str) -> bool:
+        # 20 秒无数据即判定卡住，换下一个源（避免停在 0%）
+        return run_try(cmd, env={"PLAYWRIGHT_DOWNLOAD_HOST": host, "PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT": "20000"},
+                       timeout=20 * 60)
+
+    try_sources("下载 Chromium", sources, attempt)
 
 
 def node_tools() -> tuple[list[str], str]:
@@ -175,28 +306,33 @@ def node_tools() -> tuple[list[str], str]:
     return [shutil.which("npm")], "npm"
 
 
-def ensure_web(force_install: bool, build: bool, force_build: bool, opts: dict[str, str]) -> list[str]:
+def ensure_web(force_install: bool, build: bool, force_build: bool, opts: dict[str, list[str]]) -> list[str]:
     step("准备前端（Vue 3）")
     pm, kind = node_tools()
-    env = {"npm_config_registry": opts["npm_registry"]} if opts.get("npm_registry") else {}
     want = file_hash(WEB / "package.json", WEB / "pnpm-lock.yaml")
     stamp = WEB / "node_modules" / ".cloudsearch-deps"
     if force_install or not stamp_ok(stamp, want):
-        if kind == "pnpm":
-            run(pm + ["install", "--frozen-lockfile"], cwd=WEB, env=env)
-        else:
+        sources = order_sources("前端包", NPM_SOURCES, opts.get("npm_registries", []), "/vue")
+
+        def attempt(registry: str) -> bool:
+            env = {"npm_config_registry": registry, "npm_config_fetch_timeout": "60000",
+                   "npm_config_fetch_retries": "2", "COREPACK_NPM_REGISTRY": registry}
+            if kind == "pnpm":
+                return run_try(pm + ["install", "--frozen-lockfile"], cwd=WEB, env=env)
             info("未检测到 pnpm/corepack，改用 npm 安装（不使用锁文件）")
-            run(pm + ["install"], cwd=WEB, env=env)
+            return run_try(pm + ["install"], cwd=WEB, env=env)
+
+        try_sources("安装前端依赖", sources, attempt)
         stamp.write_text(want, encoding="utf-8")
     else:
         info("前端依赖已是最新，跳过")
     if build:
         index = WEB / "dist" / "index.html"
-        sources = [WEB / "index.html", WEB / "package.json", WEB / "vite.config.ts", *(WEB / "src").rglob("*")]
-        newest = max(p.stat().st_mtime for p in sources if p.is_file())
+        sources_files = [WEB / "index.html", WEB / "package.json", WEB / "vite.config.ts", *(WEB / "src").rglob("*")]
+        newest = max(p.stat().st_mtime for p in sources_files if p.is_file())
         if force_build or not index.exists() or index.stat().st_mtime < newest:
             step("打包前端")
-            run(pm + ["run", "build"], cwd=WEB, env=env)
+            run(pm + ["run", "build"], cwd=WEB)
         else:
             info("前端打包已是最新，跳过")
     return pm

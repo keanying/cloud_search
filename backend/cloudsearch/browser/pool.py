@@ -101,7 +101,15 @@ class BrowserPool:
             if self._browser is None or not self._browser.is_connected():
                 s = get_settings()
                 self._pw = self._pw or await async_playwright().start()
-                kwargs: dict = {"headless": s.browser_headless}
+                from .launch import resolve
+
+                choice = resolve()
+                if choice["mode"] == "error":
+                    raise RuntimeError(choice["detail"])
+                if choice["mode"] == "missing":
+                    raise RuntimeError("未找到可用的浏览器：请运行启动脚本下载 Chromium，或在 config.yaml 设置 "
+                                       "browser.channel: msedge / chrome（使用系统已安装的浏览器）")
+                kwargs: dict = {"headless": s.browser_headless, **choice["launch_kwargs"]}
                 if s.browser_proxy:
                     kwargs["proxy"] = {"server": s.browser_proxy}
                 self._browser = await self._pw.chromium.launch(**kwargs)

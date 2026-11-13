@@ -165,9 +165,13 @@ cmd_status() {
   local body
   if body="$(http_get "$(health_url "$host" "$port")" 2>/dev/null)"; then echo "  health     $body"
   else c_red "  health     接口无响应或异常（$(health_url "$host" "$port")）"; ok=0; fi
-  local pw="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/ms-playwright}"
-  if ls -d "$pw"/chromium* >/dev/null 2>&1; then echo "  chromium   已安装（$pw）"
-  else c_red "  chromium   未安装，执行 scripts/server.sh setup"; ok=0; fi
+  local br mode
+  br="$("$VENV_PY" -m cloudsearch.browser.launch 2>/dev/null)"
+  mode="$(printf '%s' "$br" | "$VENV_PY" -c 'import sys,json;d=json.load(sys.stdin);print(d["mode"], d["detail"])' 2>/dev/null)"
+  case "$mode" in
+    bundled*|channel*|executable*) echo "  browser    ${mode#* }" ;;
+    *) c_red "  browser    不可用：${mode#* }（执行 scripts/server.sh setup 下载 Chromium）"; ok=0 ;;
+  esac
   local disk; disk="$(df -P "$ROOT" | awk 'NR==2{print $5}')"
   echo "  disk       已用 $disk"
   if [ "$ok" = "1" ]; then c_green "状态：正常"; return 0; fi
