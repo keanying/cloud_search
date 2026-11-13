@@ -60,6 +60,7 @@ class SourceInfo:
 class PipelineOutcome:
     parts: list[dict] = field(default_factory=list)
     artifact_ids: list[str] = field(default_factory=list)
+    bundles: list[dict] = field(default_factory=list)  # 同一成果的多种格式：{primary, formats:[{format, artifact_id, byte_qty}]}
     delivered: bool = False
     technical_failures: int = 0
     error_code: str | None = None
@@ -172,27 +173,37 @@ class Pipeline:
             await self._stage("build")
             built = await self.ctx.step("build", lambda c: self._build_fn(c, verified), node_kind="deterministic")
             rows = built["rows"]
-            outcome.artifact_ids += built["artifact_ids"]
+            self._built = (rows, [s.public() for s in sorted(self.sources.values(), key=lambda s: s.n)])
+            outcome.artifact_ids += built.get("artifact_ids", [])
+            outcome.bundles += built.get("bundles", [])
             await self._stage("build", "done")
         if "analyze" in self.stages:
             await self._stage("analyze")
             res = await self.ctx.step("analyze", lambda c: self._analyze_fn(c, rows), agent_role="analyst")
             analysis = res["results"]
             outcome.artifact_ids += res.get("artifact_ids", [])
+            if res.get("xlsx") and outcome.bundles:  # 含分析的 Excel 作为数据成果的主文件
+                b = outcome.bundles[0]
+                b["formats"] = [res["xlsx"]] + [f for f in b["formats"] if f["format"] != "xlsx"]
+                b["primary"] = res["xlsx"]["artifact_id"]
             await self._stage("analyze", "done")
         if "write" in self.stages:
             await self._stage("write")
             written = await self.ctx.step("write", lambda c: self._write_fn(c, verified, analysis, rows),
                                           agent_role="report_writer")
             outcome.artifact_ids += written.get("artifact_ids", [])
+            outcome.bundles += written.get("bundles", [])
             await self._stage("write", "done")
             used = written["used"]
             outcome.parts.append({
                 "type": "text", "part_id": f"answer-{self.ctx.task_id}", "text": written["markdown"],
                 "citations": [self._citation(n) for n in used if self._citation(n)]})
         else:
-            outcome.parts.append({"type": "text", "part_id": f"answer-{self.ctx.task_id}",
-                                  "text": self._dataset_summary(rows), "citations": []})
+            text = self._dataset_summary(rows)
+            if analysis:
+                text += "\n\n" + exporters.analysis_markdown(analysis)
+            outcome.parts.append({"type": "text", "part_id": f"answer-{self.ctx.task_id}", "text": text,
+                                  "citations": []})
         outcome.parts.append({"type": "source", "part_id": f"sources-{self.ctx.task_id}", "task_id": self.ctx.task_id,
                               "sources": [s.public() for s in sorted(self.sources.values(), key=lambda s: s.n)]})
         outcome.delivered = True
@@ -595,6 +606,7 @@ class Pipeline:
             rows.append({"entity_name": recs[0]["entity_name"], "values": values, "missing_reasons": missing,
                          "source_nos": sorted(nos), "conflicts": conflicts})
         sources = [s.public() for s in sorted(self.sources.values(), key=lambda s: s.n)]
+        self._built = (rows, sources)
         arts: list[Artifact] = []
         base = re.sub(r"[\\/:*?\"<>|\s]+", "_", self.spec.title)[:40] or "dataset"
         fmts = self.spec.output_formats or ["csv"]
@@ -612,20 +624,35 @@ class Pipeline:
         async def persist(s: AsyncSession) -> None:
             s.add_all(arts)
 
-        return StepResult({"rows": rows, "artifact_ids": [a.artifact_id for a in arts]}, persist)
+        # 数据文件作为一个成果、多种格式：Excel 为主（含字段字典/来源/分析），CSV、JSON 可选下载
+        order = {"xlsx": 0, "csv": 1, "json": 2}
+        ordered = sorted(arts, key=lambda a: order.get(a.display_name.rsplit(".", 1)[-1], 9))
+        bundle = {"primary": ordered[0].artifact_id,
+                  "formats": [{"format": a.display_name.rsplit(".", 1)[-1], "artifact_id": a.artifact_id,
+                               "byte_qty": a.byte_qty} for a in ordered]} if ordered else None
+        return StepResult({"rows": rows, "artifact_ids": [], "bundles": [bundle] if bundle else []}, persist)
 
     async def _analyze_fn(self, c: TaskExecContext, rows: list[dict]) -> StepResult:
         results = await analyst.analyze(self.spec, [r["values"] for r in rows], c)
         data = [r.model_dump() for r in results]
         arts: list[Artifact] = []
-        if "write" not in self.stages and data:
-            md = "# 数据分析\n\n" + "\n\n".join(r.to_markdown() for r in results)
-            arts.append(await self._save_artifact(c, "report", "数据分析.md", "text/markdown", md.encode("utf-8")))
+        xlsx = None
+        built = getattr(self, "_built", None)
+        if data and self.spec.dataset and built and "xlsx" in (self.spec.output_formats or ["xlsx"]):
+            # 新版 Excel：在原数据基础上加“分析”表与原生图表（原文件保留，不覆盖）
+            b_rows, b_sources = built
+            base = re.sub(r"[\\/:*?\"<>|\s]+", "_", self.spec.title)[:40] or "dataset"
+            a = await self._save_artifact(
+                c, "dataset", f"{base}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                exporters.render_xlsx(self.spec.dataset.fields, b_rows, b_sources, self.spec.dataset.entity, data),
+                len(b_rows))
+            arts.append(a)
+            xlsx = {"format": "xlsx", "artifact_id": a.artifact_id, "byte_qty": a.byte_qty}
 
         async def persist(s: AsyncSession) -> None:
             s.add_all(arts)
 
-        return StepResult({"results": data, "artifact_ids": [a.artifact_id for a in arts]}, persist)
+        return StepResult({"results": data, "artifact_ids": [], "xlsx": xlsx}, persist)
 
     async def _write_fn(self, c: TaskExecContext, verified: dict, analysis: list[dict],
                         rows: list[dict]) -> StepResult:
@@ -660,31 +687,50 @@ class Pipeline:
         gaps += [f"覆盖不足：{m}" for m in self.coverage_missing]
         is_answer = self.spec.mode == "quick_search"
         report = self.spec.report
-        draft, used = await report_writer.write(
+        draft, used, charts = await report_writer.write(
             kind="answer" if is_answer else "report",
             question=report.question if report else "；".join(self.spec.scope.questions) or self.spec.requirement_text,
             outline=report.outline if report else [], audience=report.audience if report else None,
             evidence_block="\n\n".join(blocks), valid_ns={s.n for s in self.sources.values()},
             analysis_block=analysis_block, conflicts_block=conflicts_block, gaps_block="\n".join(gaps), ctx=c)
-        markdown = draft.markdown
-        if draft.limitations and is_answer:
-            markdown += "\n\n> 说明：" + "；".join(draft.limitations)
-        arts: list[Artifact] = []
-        if not is_answer:
-            cited = [s.public() for s in sorted(self.sources.values(), key=lambda s: s.n) if s.n in used]
-            doc = markdown
-            if draft.limitations and "局限" not in doc:
-                doc += "\n\n## 局限与缺口\n\n" + "\n".join(f"- {x}" for x in draft.limitations)
-            doc += "\n\n" + exporters.render_sources_md(cited)
-            doc += f"\n\n---\n*由云搜浏览器生成；机器核验（machine_checked），未经人工审核。生成时间 {iso(utcnow())}*\n"
-            name = re.sub(r"[\\/:*?\"<>|\s]+", "_", draft.title or self.spec.title)[:60] + ".md"
-            arts.append(await self._save_artifact(c, "report", name, "text/markdown", doc.encode("utf-8")))
+        title = draft.title or self.spec.title
+        full_md = report_writer.assemble_markdown(draft, charts, include_title=True)
+        if is_answer:
+            chat_md = report_writer.assemble_markdown(draft, charts, include_title=False)
+        else:
+            # 报告：对话中展示摘要、要点与图表，完整报告见文件/右侧预览
+            brief = draft.model_copy(update={"markdown": "", "limitations": []})
+            chat_md = (f"### {title}\n\n" + report_writer.assemble_markdown(brief, charts, include_title=False)
+                       + "\n完整报告（含正文、图表与参考来源）可在下方下载 Word / PDF，或点「查看完整报告」。")
+        cited = [s.public() for s in sorted(self.sources.values(), key=lambda s: s.n) if s.n in used]
+        bundle = await self._save_report_bundle(c, title, full_md, cited)
 
         async def persist(s: AsyncSession) -> None:
-            s.add_all(arts)
+            s.add_all(bundle["rows"])
 
-        return StepResult({"title": draft.title, "markdown": markdown, "used": used,
-                           "limitations": draft.limitations, "artifact_ids": [a.artifact_id for a in arts]}, persist)
+        return StepResult({"title": title, "markdown": chat_md, "used": used, "limitations": draft.limitations,
+                           "bundles": [bundle["part"]]}, persist)
+
+    async def _save_report_bundle(self, c: TaskExecContext, title: str, markdown: str, sources: list[dict]) -> dict:
+        """同一份报告生成 HTML / Word / PDF / Markdown 四种格式（PDF 需要浏览器，不可用时省略）。"""
+        from . import report_render
+
+        mode_label = {"quick_search": "搜索结果", "research": "研究报告", "hybrid": "数据分析报告"}.get(
+            self.spec.mode, "报告")
+        meta = (f"{mode_label} · 生成于 {utcnow().strftime('%Y-%m-%d %H:%M')} UTC · 引用来源 {len(sources)} 个 · "
+                f"机器核验，未经人工审核")
+        files = await report_render.build_report_bundle(title=title, markdown=markdown, sources=sources,
+                                                        meta_line=meta)
+        base = re.sub(r"[\\/:*?\"<>|\s]+", "_", title)[:60] or "report"
+        mimes = {"html": "text/html", "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                 "pdf": "application/pdf", "md": "text/markdown"}
+        rows, formats = [], []
+        for fmt in ("html", "docx", "pdf", "md"):
+            if fmt in files:
+                a = await self._save_artifact(c, "report", f"{base}.{fmt}", mimes[fmt], files[fmt])
+                rows.append(a)
+                formats.append({"format": fmt, "artifact_id": a.artifact_id, "byte_qty": a.byte_qty})
+        return {"rows": rows, "part": {"primary": rows[0].artifact_id, "formats": formats}}
 
 
 def task_stages_from_spec(spec: TaskSpec) -> list[str]:

@@ -72,8 +72,17 @@ async def preview(artifact_id: str, u: CurrentUser = Depends(current_user), s: A
         return ArtifactPreviewOut(kind="table", columns=[str(c) for c in rows[0]] if rows else [],
                                   rows=body[:PREVIEW_ROWS], total_rows=len(body),
                                   shown_rows=min(len(body), PREVIEW_ROWS))
+    if a.mime_name == "application/pdf" or a.mime_name.endswith("wordprocessingml.document"):
+        # 二进制文档：改为预览同一成果的 HTML 版本（同任务同名）
+        html_row = (await s.execute(select(Artifact).where(
+            Artifact.task_id == a.task_id, Artifact.mime_name == "text/html",
+            Artifact.display_name == a.display_name.rsplit(".", 1)[0] + ".html"))).scalar()
+        if html_row is None:
+            raise HTTPException(415, "该文件不支持在线预览，请下载查看")
+        data, a = await get_storage().get(html_row.storage_ref), html_row
     text = data.decode("utf-8", "replace")
-    return ArtifactPreviewOut(kind="markdown" if a.mime_name == "text/markdown" else "text", content=text[:200_000])
+    kind = {"text/markdown": "markdown", "text/html": "html"}.get(a.mime_name, "text")
+    return ArtifactPreviewOut(kind=kind, content=text[:2_000_000])
 
 
 @router.get("/{artifact_id}/download")

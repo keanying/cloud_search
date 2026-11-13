@@ -119,11 +119,23 @@ async def test_dataset_requires_confirmation_and_exports(client, fake_llm, fake_
     assert task["task_status"] == "completed", task
     msg = await _assistant(client, h, cid)
     arts = parts_of(msg, "artifact")
-    names = sorted(a["display_name"].rsplit(".", 1)[1] for a in arts)
-    assert names == ["csv", "md", "xlsx"]  # 数据文件 + 分析
-    csv_art = next(a for a in arts if a["display_name"].endswith(".csv"))
-    assert csv_art["record_qty"] == 2
-    prev = (await client.get(f"/api/v1/artifacts/{csv_art['artifact_id']}/preview", headers=h)).json()
+    data_card = next(a for a in arts if a.get("formats"))  # 数据文件：一张卡片、多种格式
+    assert [f["format"] for f in data_card["formats"]] == ["xlsx", "csv"]
+    assert data_card["artifact_id"] == data_card["formats"][0]["artifact_id"] and data_card["record_qty"] == 2
+    # 主 Excel 含“分析”表与原生图表；对话中展示分析表格与图表
+    import io
+
+    from openpyxl import load_workbook
+
+    xlsx = (await client.get(f"/api/v1/artifacts/{data_card['artifact_id']}/download", headers=h)).content
+    wb = load_workbook(io.BytesIO(xlsx))
+    assert wb.sheetnames == ["数据", "字段字典", "来源", "分析"]
+    assert wb["数据"].freeze_panes == "A2" and wb["数据"].auto_filter.ref
+    answer = next(p for p in msg["parts"] if p["part_id"].startswith("answer-"))
+    assert "### 数量" in answer["text"] and "| 数量 |" in answer["text"]
+    csv_id = next(f["artifact_id"] for f in data_card["formats"] if f["format"] == "csv")
+    csv_art = (await client.get(f"/api/v1/artifacts/{csv_id}", headers=h)).json()
+    prev = (await client.get(f"/api/v1/artifacts/{csv_id}/preview", headers=h)).json()
     assert prev["kind"] == "table" and prev["total_rows"] == 2
     assert prev["columns"][:3] == ["名称", "票价", "备注"]
     row = next(r for r in prev["rows"] if r[0] == "故宫博物院")
@@ -133,7 +145,7 @@ async def test_dataset_requires_confirmation_and_exports(client, fake_llm, fake_
     dl = await client.get(f"/api/v1/artifacts/{csv_art['artifact_id']}/download", headers=h)
     assert dl.status_code == 200 and dl.headers["x-content-sha256"] == csv_art["content_hash"]
     mine = (await client.get("/api/v1/artifacts", headers=h)).json()
-    assert len(mine) == 3 and all(a["conversation_id"] == cid for a in mine)
+    assert len(mine) == 3 and all(a["conversation_id"] == cid for a in mine)  # xlsx/csv + 含分析的新版 xlsx
 
 
 async def test_stop_current_turn_quarantines_late_results(client, fake_llm, fake_browser):

@@ -106,7 +106,7 @@ async def execute_run(run_id: str, lease_epoch: int, worker_id: str) -> None:
     # 单个网页受限/失败属于覆盖缺口（在成果中说明），不使整个任务失败；没有任何可交付成果才是 failed
     status = "completed" if outcome.delivered else "failed"
     await _finish(ctx, status, error_code=outcome.error_code, error_desc=outcome.error_desc, parts=outcome.parts,
-                  artifact_ids=outcome.artifact_ids)
+                  artifact_ids=outcome.artifact_ids, bundles=outcome.bundles)
 
 
 def _friendly_error(e: Exception) -> str:
@@ -117,22 +117,35 @@ def _friendly_error(e: Exception) -> str:
     return f"任务执行出错：{type(e).__name__}。已保存的来源与成果不受影响，可稍后重试。"
 
 
-async def _artifact_parts(s, task_id: str, artifact_ids: list[str]) -> list[dict]:
+async def _artifact_parts(s, task_id: str, artifact_ids: list[str], bundles: list[dict] | None = None) -> list[dict]:
+    """成果片段：bundles 中每个成果一张卡片（主文件 + formats 多格式下载）；其余单文件各一张。"""
     from ..db.models import Artifact
 
-    if not artifact_ids:
+    bundles = bundles or []
+    ids = list(artifact_ids) + [b["primary"] for b in bundles]
+    if not ids:
         return []
-    rows = (await s.execute(select(Artifact).where(Artifact.artifact_id.in_(artifact_ids)))).scalars().all()
+    rows = (await s.execute(select(Artifact).where(Artifact.artifact_id.in_(ids)))).scalars().all()
     by_id = {a.artifact_id: a for a in rows}
-    return [{"type": "artifact", "part_id": f"artifact-{a.artifact_id}", "task_id": task_id,
-             "artifact_id": a.artifact_id, "artifact_kind": a.artifact_kind, "display_name": a.display_name,
+
+    def part(a, formats=None):
+        p = {"type": "artifact", "part_id": f"artifact-{a.artifact_id}", "task_id": task_id,
+             "artifact_id": a.artifact_id, "artifact_kind": a.artifact_kind,
+             "display_name": a.display_name.rsplit(".", 1)[0] if formats else a.display_name,
              "mime_name": a.mime_name, "byte_qty": a.byte_qty, "record_qty": a.record_qty,
              "content_hash": a.content_hash, "quality_status": a.quality_status}
-            for aid in artifact_ids if (a := by_id.get(aid))]
+        if formats:
+            p["formats"] = formats
+        return p
+
+    out = [part(by_id[b["primary"]], b["formats"]) for b in bundles if b["primary"] in by_id]
+    out += [part(a) for aid in artifact_ids if (a := by_id.get(aid))]
+    return out
 
 
 async def _finish(ctx: TaskExecContext, status: str, *, error_code: str | None = None, error_desc: str | None = None,
-                  parts: list[dict] | None = None, artifact_ids: list[str] | None = None) -> None:
+                  parts: list[dict] | None = None, artifact_ids: list[str] | None = None,
+                  bundles: list[dict] | None = None) -> None:
     async with session_scope() as s:
         run = await s.get(TaskRun, ctx.run_id)
         task = await s.get(Task, ctx.task_id)
@@ -148,7 +161,7 @@ async def _finish(ctx: TaskExecContext, status: str, *, error_code: str | None =
             task.task_status = status
             task.error_code, task.error_desc = error_code, error_desc
             task.current_stage = None
-            extra = list(parts or []) + await _artifact_parts(s, task.task_id, artifact_ids or [])
+            extra = list(parts or []) + await _artifact_parts(s, task.task_id, artifact_ids or [], bundles)
             await project_task(s, task, task_event="run_finished", detail={"run_id": ctx.run_id},
                                extra_parts=extra, final=True)
     if interrupted:

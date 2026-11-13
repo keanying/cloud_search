@@ -249,7 +249,7 @@ class ArtifactOut(BaseModel):
 
 
 class ArtifactPreviewOut(BaseModel):
-    kind: Literal["table", "markdown", "text"]
+    kind: Literal["table", "markdown", "text", "html"]
     content: str | None = None
     columns: list[str] | None = None
     rows: list[list[Any]] | None = None
