@@ -44,13 +44,13 @@ async function submit() {
         <p class="text-sm text-slate-400">从一个问题开始，让 AI 帮你搜索、整理数据、生成报告</p>
       </div>
       <form class="glass-strong p-6" @submit.prevent="submit">
-        <div class="mb-5 grid grid-cols-2 rounded-xl bg-black/20 p-1" role="tablist">
+        <div class="mb-5 grid grid-cols-2 rounded-xl bg-white/5 p-1" role="tablist">
           <button
             type="button"
             role="tab"
             :aria-selected="tab === 'login'"
             class="rounded-lg py-1.5 text-sm"
-            :class="tab === 'login' ? 'bg-white/10 text-white' : 'text-slate-400'"
+            :class="tab === 'login' ? 'surface !rounded-lg text-white' : 'text-slate-400'"
             @click="tab = 'login'"
           >
             登录
@@ -60,7 +60,7 @@ async function submit() {
             role="tab"
             :aria-selected="tab === 'register'"
             class="rounded-lg py-1.5 text-sm"
-            :class="tab === 'register' ? 'bg-white/10 text-white' : 'text-slate-400'"
+            :class="tab === 'register' ? 'surface !rounded-lg text-white' : 'text-slate-400'"
             @click="tab = 'register'"
           >
             注册

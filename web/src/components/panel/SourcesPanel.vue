@@ -96,7 +96,7 @@ onBeforeUnmount(() => window.clearInterval(timer))
                 <span>{{ ACCESS_METHOD_LABEL[s.access_method] || s.access_method }}</span>
               </div>
               <ul v-if="s.evidence.length" class="mt-2 space-y-1.5">
-                <li v-for="ev in s.evidence" :key="ev.evidence_id" class="rounded-lg bg-black/20 p-2 text-xs">
+                <li v-for="ev in s.evidence" :key="ev.evidence_id" class="rounded-lg bg-white/5 p-2 text-xs">
                   <div class="flex gap-1.5 text-slate-300">
                     <Quote class="mt-0.5 h-3 w-3 shrink-0 text-slate-500" />
                     <span class="italic">{{ ev.quote_text }}</span>

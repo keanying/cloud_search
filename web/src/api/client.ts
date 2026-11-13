@@ -24,6 +24,7 @@ import type {
   TokenOut,
   UserOut,
   ViewerMetaOut,
+  LiveTicketOut,
 } from './types'
 
 export const API_BASE = '/api/v1'
@@ -163,6 +164,16 @@ export const api = {
       throw e
     }
   },
+
+  // 实时画面与人工接手
+  liveTicket: (id: string) => post<LiveTicketOut>(`/browser-sessions/${enc(id)}/live-ticket`),
+  liveUrl: (id: string, ticket: string) => {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${proto}//${location.host}${API_BASE}/browser-sessions/${enc(id)}/live?ticket=${enc(ticket)}`
+  },
+  takeover: (id: string) => post<ViewerMetaOut>(`/browser-sessions/${enc(id)}/takeover`),
+  takeoverReturn: (id: string, resolved: boolean) =>
+    post<ViewerMetaOut>(`/browser-sessions/${enc(id)}/takeover/return`, { resolved }),
 
   // 产物
   listArtifacts: () => get<ArtifactOut[]>('/artifacts'),

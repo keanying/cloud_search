@@ -1,15 +1,106 @@
 @import 'tailwindcss';
 
+/* 深色主题通过 <html class="dark"> 启用；默认浅色 */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
-  --font-sans: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', ui-sans-serif, system-ui, sans-serif;
-  --color-ink-950: #040c24;
-  --color-ink-900: #071636;
-  --color-ink-800: #0b2152;
-  --color-ink-700: #12306f;
-  --color-brand-300: #93c5fd;
-  --color-brand-400: #60a5fa;
-  --color-brand-500: #3b82f6;
-  --color-brand-600: #2563eb;
+  --font-sans: 'Inter', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', ui-sans-serif, system-ui, sans-serif;
+  /* 以下为“深色语义”调色板：组件按深色写法使用（text-white 表示主文字、bg-white/5 表示浅叠层），
+     浅色主题在 html:not(.dark) 中整体翻转这些变量，保证两套主题的语义一致 */
+  --color-ink-950: #0b1020;
+  --color-ink-900: #111830;
+  --color-ink-800: #18213d;
+  --color-ink-700: #222d4f;
+  --color-brand-300: #a5b4fc;
+  --color-brand-400: #818cf8;
+  --color-brand-500: #6366f1;
+  --color-brand-600: #4f46e5;
+  /* 强调色背景上的文字：两种主题都保持白色 */
+  --color-snow: #ffffff;
+}
+
+/* ---------------------------------------------------------------- 主题变量 */
+:root {
+  color-scheme: light;
+  /* 浅色：翻转“前景/叠层”语义色 */
+  --color-white: #0f172a;
+  --color-slate-50: #0f172a;
+  --color-slate-100: #1e293b;
+  --color-slate-200: #334155;
+  --color-slate-300: #475569;
+  --color-slate-400: #64748b;
+  --color-slate-500: #94a3b8;
+  --color-slate-600: #cbd5e1;
+  --color-ink-950: #f7f8fc;
+  --color-ink-900: #ffffff;
+  --color-ink-800: #f1f3f9;
+  --color-ink-700: #e5e8f0;
+  --color-brand-300: #4f46e5;
+  --color-brand-400: #6366f1;
+  --color-rose-100: #9f1239;
+  --color-rose-200: #be123c;
+  --color-rose-300: #e11d48;
+  --color-amber-100: #92400e;
+  --color-amber-200: #b45309;
+  --color-amber-300: #d97706;
+  --color-emerald-100: #065f46;
+  --color-emerald-200: #047857;
+  --color-emerald-300: #059669;
+
+  --cs-bg: #f7f8fc;
+  --cs-surface: rgba(255, 255, 255, 0.82);
+  --cs-surface-solid: #ffffff;
+  --cs-surface-strong: rgba(255, 255, 255, 0.96);
+  --cs-line: rgba(15, 23, 42, 0.08);
+  --cs-line-strong: rgba(15, 23, 42, 0.14);
+  --cs-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px -12px rgba(15, 23, 42, 0.12);
+  --cs-shadow-lg: 0 2px 6px rgba(15, 23, 42, 0.05), 0 24px 48px -20px rgba(30, 27, 75, 0.22);
+  --cs-input: #ffffff;
+  --cs-blob-1: rgba(167, 139, 250, 0.22);
+  --cs-blob-2: rgba(94, 234, 212, 0.18);
+  --cs-blob-3: rgba(244, 114, 182, 0.1);
+  --cs-code-bg: #f1f3f9;
+}
+
+html.dark {
+  color-scheme: dark;
+  --color-white: #ffffff;
+  --color-slate-50: #f8fafc;
+  --color-slate-100: #f1f5f9;
+  --color-slate-200: #e2e8f0;
+  --color-slate-300: #cbd5e1;
+  --color-slate-400: #94a3b8;
+  --color-slate-500: #64748b;
+  --color-slate-600: #475569;
+  --color-ink-950: #0b1020;
+  --color-ink-900: #111830;
+  --color-ink-800: #18213d;
+  --color-ink-700: #222d4f;
+  --color-brand-300: #a5b4fc;
+  --color-brand-400: #818cf8;
+  --color-rose-100: #ffe4e6;
+  --color-rose-200: #fecdd3;
+  --color-rose-300: #fda4af;
+  --color-amber-100: #fef3c7;
+  --color-amber-200: #fde68a;
+  --color-amber-300: #fcd34d;
+  --color-emerald-100: #d1fae5;
+  --color-emerald-200: #a7f3d0;
+  --color-emerald-300: #6ee7b7;
+
+  --cs-bg: #0b1020;
+  --cs-surface: rgba(255, 255, 255, 0.05);
+  --cs-surface-solid: #141b33;
+  --cs-surface-strong: rgba(20, 27, 51, 0.96);
+  --cs-line: rgba(255, 255, 255, 0.09);
+  --cs-line-strong: rgba(255, 255, 255, 0.16);
+  --cs-shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 12px 30px -16px rgba(0, 0, 0, 0.5);
+  --cs-shadow-lg: 0 2px 6px rgba(0, 0, 0, 0.25), 0 28px 60px -24px rgba(0, 0, 0, 0.7);
+  --cs-input: rgba(255, 255, 255, 0.04);
+  --cs-blob-1: rgba(129, 140, 248, 0.22);
+  --cs-blob-2: rgba(45, 212, 191, 0.12);
+  --cs-blob-3: rgba(236, 72, 153, 0.08);
+  --cs-code-bg: rgba(255, 255, 255, 0.06);
 }
 
 @layer base {
@@ -20,16 +111,15 @@
   }
   body {
     @apply font-sans text-slate-100 antialiased;
-    background-color: var(--color-ink-950);
+    background-color: var(--cs-bg);
     background-image:
-      radial-gradient(1200px 600px at 75% -10%, rgba(59, 130, 246, 0.35), transparent 60%),
-      radial-gradient(900px 500px at 0% 20%, rgba(14, 165, 233, 0.18), transparent 60%),
-      radial-gradient(800px 600px at 50% 110%, rgba(37, 99, 235, 0.25), transparent 60%),
-      linear-gradient(180deg, #061334 0%, #04102c 100%);
+      radial-gradient(520px 420px at 88% 8%, var(--cs-blob-1), transparent 70%),
+      radial-gradient(560px 460px at 6% 92%, var(--cs-blob-2), transparent 70%),
+      radial-gradient(520px 380px at 48% 62%, var(--cs-blob-3), transparent 70%);
     background-attachment: fixed;
   }
   ::selection {
-    background: rgba(96, 165, 250, 0.4);
+    background: rgba(99, 102, 241, 0.25);
   }
   :focus-visible {
     outline: 2px solid var(--color-brand-400);
@@ -37,21 +127,38 @@
   }
   * {
     scrollbar-width: thin;
-    scrollbar-color: rgba(148, 163, 184, 0.3) transparent;
+    scrollbar-color: var(--cs-line-strong) transparent;
   }
 }
 
+/* ---------------------------------------------------------------- 表面与控件 */
 @utility glass {
-  @apply rounded-2xl border border-white/10 bg-white/[0.06] shadow-xl shadow-black/20 backdrop-blur-xl;
+  @apply rounded-2xl border backdrop-blur-xl;
+  background-color: var(--cs-surface);
+  border-color: var(--cs-line);
+  box-shadow: var(--cs-shadow);
 }
 
 @utility glass-strong {
-  @apply rounded-2xl border border-white/10 bg-ink-900/80 shadow-2xl shadow-black/30 backdrop-blur-xl;
+  @apply rounded-2xl border backdrop-blur-xl;
+  background-color: var(--cs-surface-strong);
+  border-color: var(--cs-line);
+  box-shadow: var(--cs-shadow-lg);
 }
 
-/* 弹出菜单：渲染到 body 顶层（见 lib/useFloating.ts），不透明背景，避免被毛玻璃卡片遮挡或透出底层内容 */
+@utility surface {
+  @apply rounded-2xl border;
+  background-color: var(--cs-surface-solid);
+  border-color: var(--cs-line);
+  box-shadow: var(--cs-shadow);
+}
+
+/* 弹出菜单：渲染到 body 顶层（见 lib/useFloating.ts），不透明背景 */
 @utility popover-menu {
-  @apply z-[1000] rounded-xl border border-white/15 bg-ink-900/95 p-1 shadow-2xl shadow-black/50 backdrop-blur-xl;
+  @apply z-[1000] rounded-xl border p-1;
+  background-color: var(--cs-surface-solid);
+  border-color: var(--cs-line-strong);
+  box-shadow: var(--cs-shadow-lg);
 }
 
 @utility btn {
@@ -59,19 +166,21 @@
 }
 
 @utility btn-primary {
-  @apply btn bg-gradient-to-b from-brand-500 to-brand-600 text-white shadow-lg shadow-brand-600/30 hover:from-brand-400 hover:to-brand-500;
+  @apply btn bg-gradient-to-b from-brand-500 to-brand-600 text-snow shadow-md shadow-brand-600/25 hover:brightness-110;
 }
 
 @utility btn-secondary {
-  @apply btn border border-white/15 bg-white/5 text-slate-100 hover:bg-white/10;
+  @apply btn border text-slate-100 hover:bg-white/5;
+  background-color: var(--cs-surface-solid);
+  border-color: var(--cs-line-strong);
 }
 
 @utility btn-ghost {
-  @apply btn text-slate-300 hover:bg-white/10 hover:text-white;
+  @apply btn text-slate-300 hover:bg-white/5 hover:text-white;
 }
 
 @utility btn-danger {
-  @apply btn border border-rose-400/30 bg-rose-500/15 text-rose-100 hover:bg-rose-500/25;
+  @apply btn border border-rose-400/40 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20;
 }
 
 @utility btn-sm {
@@ -79,11 +188,13 @@
 }
 
 @utility icon-btn {
-  @apply inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-300 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-40;
+  @apply inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-300 transition-colors hover:bg-white/5 hover:text-white disabled:opacity-40;
 }
 
 @utility input {
-  @apply w-full rounded-xl border border-white/15 bg-ink-950/60 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-500/30;
+  @apply w-full rounded-xl border px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20;
+  background-color: var(--cs-input);
+  border-color: var(--cs-line-strong);
 }
 
 @utility label {
@@ -91,7 +202,9 @@
 }
 
 @utility chip {
-  @apply inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-sm text-slate-200 transition-colors hover:border-brand-400/60 hover:bg-brand-500/15;
+  @apply inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-sm text-slate-200 transition-colors hover:border-brand-400/60 hover:bg-brand-500/10;
+  background-color: var(--cs-surface-solid);
+  border-color: var(--cs-line-strong);
 }
 
 @utility card-title {
@@ -102,70 +215,109 @@
   @apply text-slate-400;
 }
 
+@utility hairline {
+  border-color: var(--cs-line);
+}
+
 @utility cite-chip {
-  @apply mx-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-md bg-brand-500/25 px-1 align-super text-[10px] leading-none font-semibold text-brand-300 hover:bg-brand-500/50 hover:text-white;
+  @apply mx-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-md bg-brand-500/15 px-1 align-super text-[10px] leading-none font-semibold text-brand-300 hover:bg-brand-500 hover:text-snow;
 }
 
 @layer components {
-
-
-  /* Markdown 正文 */
+  /* ------------------------------------------------------------ Markdown 正文（报告级排版） */
   .prose-cs {
-    @apply text-[15px] leading-7 text-slate-100 break-words;
+    @apply text-[15px] leading-7 break-words text-slate-100;
+  }
+  .prose-cs > :first-child {
+    @apply mt-0;
   }
   .prose-cs p {
-    @apply my-2;
+    @apply my-2.5;
   }
   .prose-cs h1,
   .prose-cs h2,
   .prose-cs h3,
   .prose-cs h4 {
-    @apply mt-4 mb-2 font-semibold text-white;
+    @apply font-semibold tracking-tight text-white;
   }
   .prose-cs h1 {
-    @apply text-xl;
+    @apply mt-6 mb-3 text-[22px] leading-8;
   }
   .prose-cs h2 {
-    @apply text-lg;
+    @apply mt-6 mb-2.5 border-b pb-1.5 text-lg;
+    border-color: var(--cs-line);
   }
   .prose-cs h3 {
-    @apply text-base;
+    @apply mt-5 mb-2 text-base;
+  }
+  .prose-cs h4 {
+    @apply mt-4 mb-1.5 text-[15px] text-slate-200;
   }
   .prose-cs ul {
-    @apply my-2 list-disc pl-6;
+    @apply my-2.5 list-disc pl-6 marker:text-brand-400;
   }
   .prose-cs ol {
-    @apply my-2 list-decimal pl-6;
+    @apply my-2.5 list-decimal pl-6 marker:font-semibold marker:text-brand-400;
   }
   .prose-cs li {
-    @apply my-0.5;
+    @apply my-1 pl-0.5;
+  }
+  .prose-cs li > p {
+    @apply my-1;
+  }
+  .prose-cs strong {
+    @apply font-semibold text-white;
   }
   .prose-cs a {
-    @apply text-brand-300 underline decoration-brand-300/40 underline-offset-2 hover:text-white;
+    @apply text-brand-300 underline decoration-brand-400/40 underline-offset-2 hover:decoration-brand-400;
   }
   .prose-cs code {
-    @apply rounded bg-white/10 px-1 py-0.5 text-[13px];
+    @apply rounded-md px-1.5 py-0.5 font-mono text-[13px];
+    background-color: var(--cs-code-bg);
   }
   .prose-cs pre {
-    @apply my-3 overflow-x-auto rounded-xl bg-black/30 p-3;
+    @apply my-3 overflow-x-auto rounded-xl border p-3 text-[13px] leading-6;
+    background-color: var(--cs-code-bg);
+    border-color: var(--cs-line);
   }
   .prose-cs pre code {
     @apply bg-transparent p-0;
   }
+  /* 引用块渲染为提示框 */
   .prose-cs blockquote {
-    @apply my-2 border-l-2 border-brand-400/50 pl-3 text-slate-300;
+    @apply my-3 rounded-r-xl border-l-4 border-brand-400 bg-brand-500/[0.07] px-4 py-2.5 text-slate-200;
+  }
+  .prose-cs blockquote p {
+    @apply my-1;
+  }
+  /* 表格：可横向滚动、表头吸顶、斑马纹 */
+  .prose-cs .table-wrap {
+    @apply my-4 max-h-[480px] overflow-auto rounded-xl border;
+    border-color: var(--cs-line);
   }
   .prose-cs table {
-    @apply my-3 w-full border-collapse text-sm;
+    @apply w-full border-collapse text-sm;
   }
-  .prose-cs th,
+  .prose-cs thead th {
+    @apply sticky top-0 z-[1] px-3 py-2 text-left text-xs font-semibold whitespace-nowrap text-slate-300;
+    background-color: var(--color-ink-800);
+  }
   .prose-cs td {
-    @apply border border-white/10 px-2 py-1 text-left;
+    @apply border-t px-3 py-2 align-top;
+    border-color: var(--cs-line);
   }
-  .prose-cs th {
-    @apply bg-white/5;
+  .prose-cs tbody tr:nth-child(even) td {
+    background-color: rgb(127 127 127 / 0.04);
   }
   .prose-cs hr {
-    @apply my-4 border-white/10;
+    @apply my-5;
+    border-color: var(--cs-line);
+  }
+  .prose-cs img {
+    @apply my-3 max-w-full rounded-xl;
+  }
+  /* 图表占位（由 ChartBlock 挂载） */
+  .prose-cs .cs-chart {
+    @apply my-4;
   }
 }

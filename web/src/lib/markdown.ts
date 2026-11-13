@@ -4,6 +4,26 @@ import DOMPurify from 'dompurify'
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
 
+// 表格外包一层可横向滚动的容器（表头吸顶、斑马纹见 style.css .table-wrap）
+md.renderer.rules.table_open = () => '<div class="table-wrap"><table>\n'
+md.renderer.rules.table_close = () => '</table></div>\n'
+
+export type MdSegment = { kind: 'md'; text: string } | { kind: 'chart'; raw: string }
+
+/** 把 ```chart 代码块拆出来单独渲染为图表，其余部分按 Markdown 渲染 */
+export function splitCharts(text: string): MdSegment[] {
+  const out: MdSegment[] = []
+  const re = /^```chart[^\n]*\n([\s\S]*?)^```[ \t]*$/gm
+  let last = 0
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    if (m.index > last) out.push({ kind: 'md', text: text.slice(last, m.index) })
+    out.push({ kind: 'chart', raw: m[1] })
+    last = m.index + m[0].length
+  }
+  if (last < text.length) out.push({ kind: 'md', text: text.slice(last) })
+  return out.filter((s) => s.kind === 'chart' || s.text.trim())
+}
+
 DOMPurify.addHook('afterSanitizeAttributes', (node) => {
   if (node.tagName === 'A') {
     node.setAttribute('target', '_blank')

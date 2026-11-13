@@ -63,6 +63,11 @@ class CloudBrowserSession:
                 row.current_activity = activity[:128]
 
     async def capture_frame(self, *, force: bool = False) -> None:
+        from .live import CHANNELS
+
+        ch = CHANNELS.get(self.browser_session_id)
+        if ch is not None and ch.handoff_active:
+            return  # 人工接管期间画面只实时推送，不保存
         now = time.monotonic()
         if not force and now - self._last_frame < self._interval:
             return
@@ -143,15 +148,19 @@ class BrowserPool:
             await context.route("**/*", _guard)
             page = await context.new_page()
             bsid = new_id("bs")
+            from . import live
+
             async with session_scope() as db:
                 db.add(BrowserSession(browser_session_id=bsid, project_id=project_id, task_id=task_id,
                                       run_id=run_id, worker_id=worker_id, session_label=label,
-                                      session_status="active"))
+                                      session_status="active", live_endpoint=live.ADVERTISED_ENDPOINT))
             cs = CloudBrowserSession(bsid, context, page)
+            live.register(bsid, cs)
             try:
                 yield cs
             finally:
                 try:
+                    await live.unregister(bsid)
                     await context.close()
                 finally:
                     async with session_scope() as db:

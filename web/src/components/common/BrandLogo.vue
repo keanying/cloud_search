@@ -6,12 +6,13 @@ defineProps<{ size?: number }>()
   <svg :width="size ?? 32" :height="size ?? 32" viewBox="0 0 64 64" aria-hidden="true">
     <defs>
       <linearGradient id="cs-logo-g" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0" stop-color="#7dd3fc" />
-        <stop offset="1" stop-color="#2563eb" />
+        <stop offset="0" stop-color="#8b5cf6" />
+        <stop offset="1" stop-color="#4f46e5" />
       </linearGradient>
     </defs>
-    <circle cx="32" cy="32" r="28" fill="url(#cs-logo-g)" />
-    <circle cx="32" cy="32" r="13" fill="#0b1e46" />
-    <circle cx="36" cy="28" r="5" fill="#e0f2fe" />
+    <rect x="4" y="4" width="56" height="56" rx="16" fill="url(#cs-logo-g)" />
+    <circle cx="30" cy="30" r="12" fill="none" stroke="#fff" stroke-width="5" />
+    <path d="M39 39 L48 48" stroke="#fff" stroke-width="5" stroke-linecap="round" />
+    <circle cx="34" cy="26" r="3.2" fill="#c7d2fe" />
   </svg>
 </template>

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import secrets
+from collections.abc import Awaitable, Callable
 
 from ...browser.pool import CloudBrowserSession
 from ...browser.reader import PageRead, extract_main_text, looks_blocked, read_url
@@ -58,9 +59,14 @@ async def _execute(s: CloudBrowserSession, obs: Observation, action: BrowserActi
 
 
 async def read_source(s: CloudBrowserSession, url: str, *, goal: str, ctx: ExecContext,
-                      allow_interaction: bool = True) -> PageRead:
+                      allow_interaction: bool = True,
+                      on_blocked: Callable[[CloudBrowserSession, str], Awaitable[bool]] | None = None) -> PageRead:
     await ctx.check()
     result = await read_url(s, url, min_chars=MIN_CHARS)
+    if result.status == "blocked" and on_blocked is not None and "HTTP" not in (result.reason or ""):
+        # 验证码/登录墙：请用户在实时画面中处理，完成后直接读取当前页面
+        if await on_blocked(s, f"网页需要验证或登录：{(result.title or url)[:60]}"):
+            result = await read_url(s, url, min_chars=MIN_CHARS, navigate=False)
     if result.status != "no_content" or not allow_interaction:
         return result
     # 正文不足：有限步交互

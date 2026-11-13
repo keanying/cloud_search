@@ -7,6 +7,7 @@ import type {
   PlanSummaryPart as PlanSummaryPartT,
   ProgressPart as ProgressPartT,
   SourcePart as SourcePartT,
+  TakeoverPart as TakeoverPartT,
   TextPart as TextPartT,
 } from '@/api/types'
 import TextPart from './TextPart.vue'
@@ -16,6 +17,7 @@ import ProgressPart from './ProgressPart.vue'
 import SourcePart from './SourcePart.vue'
 import ArtifactPart from './ArtifactPart.vue'
 import ErrorPart from './ErrorPart.vue'
+import TakeoverPart from './TakeoverPart.vue'
 
 defineProps<{ part: MessagePart; taskId?: string | null; streaming?: boolean }>()
 </script>
@@ -28,4 +30,5 @@ defineProps<{ part: MessagePart; taskId?: string | null; streaming?: boolean }>(
   <SourcePart v-else-if="part.type === 'source'" :part="part as SourcePartT" />
   <ArtifactPart v-else-if="part.type === 'artifact'" :part="part as ArtifactPartT" />
   <ErrorPart v-else-if="part.type === 'error'" :part="part as ErrorPartT" />
+  <TakeoverPart v-else-if="part.type === 'takeover'" :part="part as TakeoverPartT" />
 </template>

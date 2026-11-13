@@ -13,6 +13,9 @@
 - artifact:      {type, part_id, task_id, artifact_id, artifact_kind, display_name, mime_name, byte_qty,
                   record_qty, content_hash, quality_status}
 - error:         {type, part_id, code, message, task_id?}
+- takeover:      {type, part_id, task_id, browser_session_id, reason, state: requested|active|resolved|timeout|skipped,
+                  deadline_time}   需要用户在实时画面中处理人机验证/登录
+- artifact 片段可含 formats: [{format, artifact_id, byte_qty}]（同一成果的多种格式）
 
 SSE（GET /conversations/{id}/events）：每条 `id: <event_seq_no>`，`event: <event_type>`，`data: <json>`
 - message_created / message_updated: data = MessageOut
@@ -205,6 +208,20 @@ class BrowserSessionOut(BaseModel):
     current_activity: str | None
     frame_seq_no: int
     frame_time: datetime | None
+    live_available: bool = False
+    handoff_state: str = "none"
+    handoff_reason: str | None = None
+    handoff_deadline: datetime | None = None
+
+
+class LiveTicketOut(BaseModel):
+    ticket: str
+    expires_in: int
+    interactive: bool
+
+
+class TakeoverReturnIn(BaseModel):
+    resolved: bool = True
 
 
 class ViewerMetaOut(BrowserSessionOut):

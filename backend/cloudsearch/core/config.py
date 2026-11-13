@@ -178,6 +178,9 @@ class Settings(BaseSettings):
     browser_locale: str = "zh-CN"
     # 允许访问私网/环回地址（仅限本地测试，生产必须为 false）
     browser_allow_private_network: bool = False
+    # 人工接管：遇到人机验证/登录墙时暂停并请用户在实时画面中处理；超时则按原逻辑（换引擎/标记受限）继续
+    browser_takeover_enabled: bool = True
+    browser_takeover_timeout_s: int = 300
 
     # 浏览器搜索：引擎顺序与被拦截后的冷却时间
     search_engines: list[str] = ["duckduckgo", "google", "bing", "baidu", "sogou"]
@@ -203,6 +206,9 @@ class Settings(BaseSettings):
     worker_lease_s: int = 60
     worker_max_tasks: int = 2
     worker_processes: int = 1  # 服务器脚本启动的独立 worker 进程数（embedded=false 时）
+    # 独立 worker 的内部实时通道（API 转发实时画面与人工输入）：监听地址与对 API 公布的主机名
+    worker_live_bind: str = "127.0.0.1"
+    worker_live_advertise_host: str = "127.0.0.1"
 
 
 @lru_cache

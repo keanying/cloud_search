@@ -1,14 +1,30 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { Download, Loader2 } from 'lucide-vue-next'
-import type { ArtifactOut, ArtifactPreviewOut } from '@/api/types'
+import type { ArtifactFormat, ArtifactOut, ArtifactPreviewOut } from '@/api/types'
 import { api } from '@/api/client'
+import { FORMAT_LABEL, downloadFormat } from '@/lib/artifactFormats'
 import { artifactKindLabel, formatBytes, formatTime, qualityLabel } from '@/lib/format'
 import { renderMarkdownPlain } from '@/lib/markdown'
+import { usePanelStore } from '@/stores/panel'
 import { useToastStore } from '@/stores/toast'
 
 const props = defineProps<{ artifactId: string | null }>()
 const toast = useToastStore()
+const panel = usePanelStore()
+const fmtBusy = ref<string | null>(null)
+const otherFormats = computed(() => panel.artifactFormats)
+
+async function dlFormat(f: ArtifactFormat) {
+  fmtBusy.value = f.artifact_id
+  try {
+    await downloadFormat({ display_name: panel.artifactName || meta.value?.display_name || '成果' }, f)
+  } catch (e) {
+    toast.error(e, '下载失败')
+  } finally {
+    fmtBusy.value = null
+  }
+}
 const meta = ref<ArtifactOut | null>(null)
 const preview = ref<ArtifactPreviewOut | null>(null)
 const loading = ref(false)
@@ -62,7 +78,7 @@ function cell(v: unknown): string {
 
 <template>
   <div class="flex h-full flex-col">
-    <div v-if="meta" class="flex items-start gap-3 border-b border-white/10 p-3">
+    <div v-if="meta" class="hairline flex items-start gap-3 border-b p-3">
       <div class="min-w-0 flex-1">
         <div class="truncate text-sm font-medium text-white">{{ meta.display_name }}</div>
         <div class="mt-0.5 flex flex-wrap gap-x-2 text-xs text-slate-400">
@@ -74,12 +90,34 @@ function cell(v: unknown): string {
         </div>
         <div class="mt-0.5 truncate font-mono text-[11px] text-slate-600" :title="meta.content_hash">sha256 {{ meta.content_hash.slice(0, 16) }}…</div>
       </div>
-      <button class="btn-primary btn-sm" :disabled="downloading" @click="download">
+      <div v-if="otherFormats.length" class="flex flex-wrap justify-end gap-1">
+        <button
+          v-for="f in otherFormats"
+          :key="f.artifact_id"
+          class="btn-secondary btn-sm"
+          :disabled="fmtBusy === f.artifact_id"
+          :aria-label="`下载 ${FORMAT_LABEL[f.format]}`"
+          @click="dlFormat(f)"
+        >
+          <Loader2 v-if="fmtBusy === f.artifact_id" class="h-3.5 w-3.5 animate-spin" />
+          <Download v-else class="h-3.5 w-3.5" /> {{ FORMAT_LABEL[f.format] }}
+        </button>
+      </div>
+      <button v-else class="btn-primary btn-sm" :disabled="downloading" @click="download">
         <Loader2 v-if="downloading" class="h-3.5 w-3.5 animate-spin" />
         <Download v-else class="h-3.5 w-3.5" /> 下载
       </button>
     </div>
-    <div class="min-h-0 flex-1 overflow-auto p-3">
+    <!-- 报告（HTML）预览：沙箱 iframe，禁止脚本，与下载的排版一致 -->
+    <iframe
+      v-if="!loading && !error && preview?.kind === 'html'"
+      class="min-h-0 w-full flex-1 border-0 bg-snow"
+      sandbox=""
+      referrerpolicy="no-referrer"
+      title="报告预览"
+      :srcdoc="preview.content || ''"
+    />
+    <div v-else class="min-h-0 flex-1 overflow-auto p-3">
       <div v-if="loading" class="flex items-center gap-2 text-sm text-slate-400"><Loader2 class="h-4 w-4 animate-spin" /> 加载预览…</div>
       <div v-else-if="error" class="text-sm text-rose-300">{{ error }}</div>
       <template v-else-if="preview">
@@ -89,14 +127,14 @@ function cell(v: unknown): string {
           </div>
           <div class="overflow-auto rounded-xl border border-white/10">
             <table class="min-w-full text-left text-xs">
-              <thead class="sticky top-0 bg-ink-800">
+              <thead class="sticky top-0 bg-ink-800 shadow-[0_1px_0_var(--cs-line)]">
                 <tr>
                   <th class="px-2 py-1.5 font-medium text-slate-400">#</th>
                   <th v-for="c in preview.columns || []" :key="c" class="px-2 py-1.5 font-medium whitespace-nowrap text-slate-300">{{ c }}</th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(r, i) in preview.rows || []" :key="i" class="border-t border-white/5 align-top">
+                <tr v-for="(r, i) in preview.rows || []" :key="i" class="hairline border-t align-top even:bg-white/[0.025]">
                   <td class="px-2 py-1.5 text-slate-600">{{ i + 1 }}</td>
                   <td v-for="(v, j) in r" :key="j" class="max-w-[280px] px-2 py-1.5 text-slate-200" :class="v == null || v === '' ? 'text-slate-600' : ''">
                     {{ v == null || v === '' ? '空' : cell(v) }}

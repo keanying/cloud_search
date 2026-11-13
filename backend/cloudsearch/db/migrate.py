@@ -26,6 +26,7 @@ SCHEMA_MARKERS: list[tuple[str, callable]] = [
     (INITIAL_REVISION, lambda insp: insp.has_table("src_opr_task_f")),
     ("e61a8fd44241", lambda insp: "supports_forced_tool_choice" in
      {c["name"] for c in insp.get_columns("src_opr_llm_model_f")}),
+    ("57f4cb6bf707", lambda insp: "handoff_state" in {c["name"] for c in insp.get_columns("src_opr_browser_session_f")}),
 ]
 
 

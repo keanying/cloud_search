@@ -300,6 +300,12 @@ class BrowserSession(Base, TimestampMixin):
     frame_time: Mapped[datetime | None] = mapped_column(DT)
     frame_masked: Mapped[bool] = mapped_column(Boolean, default=False)
     closed_time: Mapped[datetime | None] = mapped_column(DT)
+    # 人工接管：none/requested/active/resolved/timeout/skipped
+    handoff_state: Mapped[str] = mapped_column(ENUM, default="none", server_default="none")
+    handoff_reason: Mapped[str | None] = mapped_column(String(256))
+    handoff_deadline: Mapped[datetime | None] = mapped_column(DT)
+    handoff_user_id: Mapped[str | None] = mapped_column(ID, comment="当前操作的用户（active 时）")
+    live_endpoint: Mapped[str | None] = mapped_column(String(256), comment="所在 worker 的内部实时通道地址（多进程时由 API 转发）")
 
 
 # ---------------------------------------------------------------- 来源与证据

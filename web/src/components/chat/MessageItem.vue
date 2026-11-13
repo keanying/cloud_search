@@ -4,6 +4,7 @@ import { UserRound } from 'lucide-vue-next'
 import type { MessageOut } from '@/api/types'
 import BrandLogo from '@/components/common/BrandLogo.vue'
 import MessagePartView from '@/components/parts/MessagePartView.vue'
+import AnswerToolbar from './AnswerToolbar.vue'
 import { modeLabel } from '@/lib/format'
 
 const props = defineProps<{ message: MessageOut }>()
@@ -25,7 +26,7 @@ const pending = computed(() => props.message.message_status === 'pending')
 <template>
   <div v-if="message.role === 'user'" class="flex justify-end gap-3">
     <div class="max-w-[80%]">
-      <div class="rounded-2xl rounded-tr-md bg-gradient-to-b from-brand-500/80 to-brand-600/80 px-4 py-2.5 text-[15px] leading-6 whitespace-pre-wrap text-white shadow-lg shadow-brand-900/40">
+      <div class="rounded-2xl rounded-tr-md bg-gradient-to-b from-brand-500 to-brand-600 px-4 py-2.5 text-[15px] leading-6 whitespace-pre-wrap text-snow shadow-md shadow-brand-600/20">
         {{ userText }}
       </div>
       <div v-if="message.mode_selection && message.mode_selection !== 'auto'" class="mt-1 text-right text-xs text-slate-500">
@@ -49,11 +50,9 @@ const pending = computed(() => props.message.message_status === 'pending')
         正在理解你的需求…
       </div>
       <template v-for="(p, i) in message.parts" :key="p.part_id">
-        <div
-          v-if="p.type === 'text'"
-          class="glass rounded-tl-md px-4 py-3"
-        >
+        <div v-if="p.type === 'text'" class="surface rounded-tl-md px-5 py-4">
           <MessagePartView :part="p" :task-id="citeTaskId" :streaming="pending && i === message.parts.length - 1" />
+          <AnswerToolbar v-if="p.part_id.startsWith('answer-') && !pending" :message="message" :part="p" />
         </div>
         <MessagePartView v-else :part="p" :task-id="citeTaskId" />
       </template>

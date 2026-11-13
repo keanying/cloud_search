@@ -191,14 +191,16 @@ async def test_auto_migrate_legacy_database(tmp_path, monkeypatch):
     config.get_settings.cache_clear()
     await base.dispose_engine()
     await base.create_all()
-    async with base.get_engine().begin() as conn:  # 模拟旧结构：删掉新列
+    async with base.get_engine().begin() as conn:  # 模拟早期结构：删掉后续版本新增的列
         await conn.execute(sa.text("ALTER TABLE src_opr_llm_model_f DROP COLUMN supports_forced_tool_choice"))
+        for col in ("handoff_state", "handoff_reason", "handoff_deadline", "handoff_user_id", "live_endpoint"):
+            await conn.execute(sa.text(f"ALTER TABLE src_opr_browser_session_f DROP COLUMN {col}"))
     await auto_migrate()
     await auto_migrate()  # 幂等
     async with base.get_engine().connect() as conn:
         cols = await conn.run_sync(lambda c: {x["name"] for x in sa.inspect(c).get_columns("src_opr_llm_model_f")})
         ver = (await conn.execute(sa.text("SELECT version_num FROM alembic_version"))).scalar()
-    assert "supports_forced_tool_choice" in cols and ver == "e61a8fd44241"
+    assert "supports_forced_tool_choice" in cols and ver == "57f4cb6bf707"
     await base.dispose_engine()
     # 全新空库：从头迁移
     monkeypatch.setenv("CS_DATABASE_URL", f"sqlite+aiosqlite:///{(tmp_path / 'new.db').as_posix()}")

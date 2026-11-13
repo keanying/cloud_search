@@ -4,10 +4,10 @@ import { nextTick, onBeforeUnmount, ref, watch, type Ref } from 'vue'
  * 弹出菜单定位：菜单通过 <Teleport to="body"> 渲染在页面顶层，并按触发按钮在屏幕上的位置用 fixed 定位。
  * 这样不会被后面的毛玻璃卡片（backdrop-filter 会形成独立层叠上下文）遮挡，也不会被滚动区域裁切。
  *
- * placement：'bottom-start' 在按钮下方左对齐；'top-start' 上方左对齐；'top-end' 上方右对齐。
+ * placement：'bottom-start' / 'bottom-end' 在按钮下方左/右对齐；'top-start' / 'top-end' 上方左/右对齐。
  * 空间不足时自动翻转到另一侧，并限制在视口内。
  */
-export type Placement = 'bottom-start' | 'top-start' | 'top-end'
+export type Placement = 'bottom-start' | 'bottom-end' | 'top-start' | 'top-end'
 
 export function useFloating(
   anchor: Ref<HTMLElement | null>,

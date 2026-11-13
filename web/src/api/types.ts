@@ -125,6 +125,15 @@ export interface SourcePart {
   sources: SourceBrief[]
 }
 
+export type ArtifactFormatName = 'docx' | 'pdf' | 'html' | 'md' | 'csv' | 'xlsx' | 'json'
+
+/** 同一成果的不同文件格式（part 自身的 artifact_id 为主格式） */
+export interface ArtifactFormat {
+  format: ArtifactFormatName
+  artifact_id: string
+  byte_qty: number
+}
+
 export interface ArtifactPart {
   type: 'artifact'
   part_id: string
@@ -137,6 +146,20 @@ export interface ArtifactPart {
   record_qty: number | null
   content_hash: string
   quality_status: string
+  formats?: ArtifactFormat[]
+}
+
+export type HandoffState = 'none' | 'requested' | 'active' | 'resolved' | 'timeout' | 'skipped'
+
+/** 需要人工接手（如人机验证）的请求卡片 */
+export interface TakeoverPart {
+  type: 'takeover'
+  part_id: string
+  task_id: string
+  browser_session_id: string
+  reason: string
+  state: 'requested' | 'active' | 'resolved' | 'timeout' | 'skipped'
+  deadline_time: string | null
 }
 
 export interface ErrorPart {
@@ -161,6 +184,7 @@ export type MessagePart =
   | SourcePart
   | ArtifactPart
   | ErrorPart
+  | TakeoverPart
 
 export interface MessageOut {
   message_id: string
@@ -276,10 +300,15 @@ export interface BrowserSessionOut {
   current_activity: string | null
   frame_seq_no: number
   frame_time: string | null
+  /** 是否支持实时画面（WebSocket） */
+  live_available?: boolean
+  handoff_state?: HandoffState
+  handoff_reason?: string | null
+  handoff_deadline?: string | null
 }
 
 export interface ViewerMetaOut extends BrowserSessionOut {
-  preview_mode: 'snapshot'
+  preview_mode: 'snapshot' | 'live'
   connected: boolean
   stale: boolean
   masked: boolean
@@ -302,8 +331,42 @@ export interface ArtifactOut {
   created_time: string
 }
 
+export interface LiveTicketOut {
+  ticket: string
+  expires_in: number
+  interactive: boolean
+}
+
+/** 实时画面 WebSocket：服务端 → 客户端 */
+export type LiveServerMsg =
+  | { type: 'frame'; data: string; width: number; height: number; seq: number; url: string; title: string }
+  | {
+      type: 'status'
+      session_status: string
+      handoff_state: HandoffState
+      handoff_reason: string | null
+      handoff_deadline: string | null
+      interactive: boolean
+    }
+  | { type: 'error'; message: string }
+
+/** 实时画面 WebSocket：客户端 → 服务端（仅人工接手期间发送） */
+export type LiveClientMsg =
+  | {
+      type: 'mouse'
+      action: 'move' | 'down' | 'up' | 'wheel'
+      x: number
+      y: number
+      button: 'left' | 'right' | 'middle'
+      clickCount: number
+      deltaX: number
+      deltaY: number
+    }
+  | { type: 'key'; action: 'down' | 'up'; key: string; code: string; text: string | null }
+  | { type: 'text'; text: string }
+
 export interface ArtifactPreviewOut {
-  kind: 'table' | 'markdown' | 'text'
+  kind: 'table' | 'markdown' | 'text' | 'html'
   content: string | null
   columns: string[] | null
   rows: unknown[][] | null

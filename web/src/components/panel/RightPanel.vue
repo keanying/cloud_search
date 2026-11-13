@@ -83,7 +83,7 @@ function onKeyResize(e: KeyboardEvent) {
         <div class="h-10 w-1 rounded-full" :class="dragging ? 'bg-brand-400' : 'bg-white/20'" />
       </div>
 
-      <header class="flex items-center gap-2 border-b border-white/10 px-3 py-2">
+      <header class="hairline flex items-center gap-2 border-b px-3 py-2">
         <nav class="flex gap-1" role="tablist">
           <button
             v-for="t in tabs"
@@ -91,20 +91,24 @@ function onKeyResize(e: KeyboardEvent) {
             role="tab"
             :aria-selected="panel.type === t.type"
             class="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm"
-            :class="panel.type === t.type ? 'bg-white/10 text-white' : 'text-slate-400 hover:text-white'"
+            :class="panel.type === t.type ? 'bg-white/5 font-medium text-white' : 'text-slate-400 hover:text-white'"
             @click="panel.setType(t.type)"
           >
             <component :is="t.icon" class="h-4 w-4" /> {{ t.label }}
           </button>
         </nav>
-        <span v-if="panel.type === 'browser'" class="rounded-full border border-brand-400/40 bg-brand-500/15 px-2 py-0.5 text-xs text-brand-300">只读阅览</span>
+        <span
+          v-if="panel.type === 'browser' && panel.interactiveSessionId"
+          class="rounded-full bg-brand-500 px-2 py-0.5 text-xs text-snow"
+        >人工操作</span>
+        <span v-else-if="panel.type === 'browser'" class="rounded-full border border-brand-400/40 bg-brand-500/10 px-2 py-0.5 text-xs text-brand-300">只读阅览</span>
         <div class="flex-1" />
         <label v-if="panel.type !== 'artifact' && taskOptions.length > 1" class="sr-only" for="cs-panel-task">选择任务</label>
         <select
           v-if="panel.type !== 'artifact' && taskOptions.length > 1"
           id="cs-panel-task"
           v-model="panel.taskId"
-          class="max-w-[160px] truncate rounded-lg border border-white/15 bg-ink-900 px-2 py-1 text-xs text-slate-200"
+          class="input max-w-[160px] truncate !py-1 !text-xs"
         >
           <option v-for="t in taskOptions" :key="t.task_id" :value="t.task_id">{{ t.title }}</option>
         </select>

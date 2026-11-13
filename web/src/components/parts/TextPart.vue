@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { TextPart } from '@/api/types'
-import { renderMarkdown } from '@/lib/markdown'
+import { renderMarkdown, splitCharts } from '@/lib/markdown'
 import { usePanelStore } from '@/stores/panel'
+import ChartBlock from './ChartBlock.vue'
 
 const props = defineProps<{ part: TextPart; taskId?: string | null; streaming?: boolean }>()
 const panel = usePanelStore()
 
-const html = computed(() => renderMarkdown(props.part.text, props.part.citations?.map((c) => c.n) ?? null))
+const citeNs = computed(() => props.part.citations?.map((c) => c.n) ?? null)
+const segments = computed(() =>
+  splitCharts(props.part.text).map((s) => (s.kind === 'md' ? { ...s, html: renderMarkdown(s.text, citeNs.value) } : s)),
+)
 
 function onClick(e: MouseEvent) {
   const el = (e.target as HTMLElement).closest('[data-cite]') as HTMLElement | null
@@ -22,7 +26,12 @@ function onClick(e: MouseEvent) {
 </script>
 
 <template>
-  <!-- eslint-disable-next-line vue/no-v-html -- 已经过 markdown-it(html:false)+DOMPurify 净化 -->
-  <div class="prose-cs" @click="onClick" v-html="html" />
+  <div class="prose-cs" @click="onClick">
+    <template v-for="(s, i) in segments" :key="i">
+      <!-- eslint-disable-next-line vue/no-v-html -- 已经过 markdown-it(html:false)+DOMPurify 净化 -->
+      <div v-if="s.kind === 'md'" v-html="(s as { html: string }).html" />
+      <ChartBlock v-else :raw="s.raw" />
+    </template>
+  </div>
   <span v-if="streaming" class="ml-1 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-brand-300 align-middle" aria-label="生成中" />
 </template>

@@ -5,6 +5,16 @@
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>云搜浏览器</title>
+    <script>
+      // 尽早应用主题，避免闪烁：localStorage 优先，其次系统偏好；默认浅色
+      ;(function () {
+        try {
+          var t = localStorage.getItem('cs_theme')
+          if (!t) t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+          if (t === 'dark') document.documentElement.classList.add('dark')
+        } catch (e) {}
+      })()
+    </script>
   </head>
   <body>
     <div id="app"></div>

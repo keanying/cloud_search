@@ -4,6 +4,9 @@ import { RouterLink } from 'vue-router'
 import type { ModeSelection } from '@/api/types'
 import { MODE_OPTIONS } from '@/lib/format'
 import { useAuthStore } from '@/stores/auth'
+import { HOME_ARTS, usePrefsStore } from '@/stores/prefs'
+
+const prefs = usePrefsStore()
 
 const auth = useAuthStore()
 const PREF_KEY = 'cs_default_mode'
@@ -35,6 +38,43 @@ watch(defaultMode, (v) => localStorage.setItem(PREF_KEY, v))
           <option v-for="m in MODE_OPTIONS" :key="m.value" :value="m.value">{{ m.label }}</option>
         </select>
         <p class="mt-2 text-xs text-slate-500">仅保存在本浏览器。智能模式会根据需求建议执行路线，你可以在发送前修改。</p>
+
+        <div class="hairline mt-4 flex items-start justify-between gap-4 border-t pt-4">
+          <div>
+            <div class="text-sm text-white" id="auto-open-label">搜索时自动打开浏览器</div>
+            <p class="mt-0.5 text-xs text-slate-500">任务开始使用云端浏览器时，在右侧自动打开实时画面；关闭面板不影响后台任务。需要人工协助（如人机验证）时总会打开。</p>
+          </div>
+          <button
+            role="switch"
+            :aria-checked="prefs.autoOpenBrowser"
+            aria-labelledby="auto-open-label"
+            class="relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
+            :class="prefs.autoOpenBrowser ? 'bg-brand-500' : 'bg-slate-500/40'"
+            @click="prefs.setAutoOpenBrowser(!prefs.autoOpenBrowser)"
+          >
+            <span class="inline-block h-5 w-5 rounded-full bg-[#fff] shadow transition" :class="prefs.autoOpenBrowser ? 'translate-x-5' : 'translate-x-0.5'" />
+          </button>
+        </div>
+
+        <div class="hairline mt-4 border-t pt-4">
+          <div class="mb-2 text-sm text-white">外观</div>
+          <div class="flex flex-wrap gap-2">
+            <button class="chip" :class="prefs.theme === 'light' ? '!border-brand-400 text-brand-300' : ''" @click="prefs.setTheme('light')">浅色</button>
+            <button class="chip" :class="prefs.theme === 'dark' ? '!border-brand-400 text-brand-300' : ''" @click="prefs.setTheme('dark')">深色</button>
+          </div>
+          <div class="mt-3 mb-2 text-xs text-slate-400">首页插画</div>
+          <div class="flex flex-wrap gap-2">
+            <button
+              v-for="a in HOME_ARTS"
+              :key="a.value"
+              class="chip"
+              :class="prefs.homeArt === a.value ? '!border-brand-400 text-brand-300' : ''"
+              @click="prefs.setHomeArt(a.value)"
+            >
+              {{ a.label }}
+            </button>
+          </div>
+        </div>
       </section>
       <section class="glass p-4 text-sm text-slate-300">
         <h2 class="card-title mb-2">模型与执行资源</h2>

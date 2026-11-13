@@ -83,7 +83,9 @@ async def _read_pdf(s: CloudBrowserSession, url: str) -> PageRead:
                     meta={"content_type": "application/pdf"})
 
 
-async def read_url(s: CloudBrowserSession, url: str, *, min_chars: int = 200, activity: str | None = None) -> PageRead:
+async def read_url(s: CloudBrowserSession, url: str, *, min_chars: int = 200, activity: str | None = None,
+                   navigate: bool = True) -> PageRead:
+    """navigate=False：不重新打开，直接读取当前页面（人工接管处理完验证/登录后使用）。"""
     async with s.lock:
         try:
             await check_url(url)
@@ -93,12 +95,14 @@ async def read_url(s: CloudBrowserSession, url: str, *, min_chars: int = 200, ac
             if urlsplit(url).path.lower().endswith(".pdf"):
                 await s.set_activity(activity or "读取 PDF")
                 return await _read_pdf(s, url)
-            try:
-                resp = await s.goto(url, activity=activity or "读取网页", check=False)
-            except Exception as e:  # noqa: BLE001
-                if "Download is starting" in str(e):
-                    return await _read_pdf(s, url)
-                raise
+            resp = None
+            if navigate:
+                try:
+                    resp = await s.goto(url, activity=activity or "读取网页", check=False)
+                except Exception as e:  # noqa: BLE001
+                    if "Download is starting" in str(e):
+                        return await _read_pdf(s, url)
+                    raise
             ctype = (resp.headers.get("content-type", "") if resp else "").lower()
             if "pdf" in ctype:
                 return await _read_pdf(s, s.page.url)

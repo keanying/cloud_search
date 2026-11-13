@@ -81,6 +81,9 @@ async def _main() -> None:
 
     await sync_config_to_db()
     w = Worker()
+    from ..browser.live_server import start_internal_server
+
+    live_task = await start_internal_server()  # 供 API 转发实时画面与人工接管输入
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
         try:
@@ -90,6 +93,7 @@ async def _main() -> None:
     try:
         await w.run_forever()
     finally:
+        live_task.cancel()
         from ..browser.pool import get_pool
 
         await get_pool().close()

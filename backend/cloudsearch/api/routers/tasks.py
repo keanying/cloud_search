@@ -122,8 +122,12 @@ async def browser_sessions(task_id: str, u: CurrentUser = Depends(current_user),
     await get_task(s, u, task_id)
     rows = (await s.execute(select(BrowserSession).where(BrowserSession.task_id == task_id)
                             .order_by(BrowserSession.created_time))).scalars().all()
+    from .viewer import live_available
+
     return [BrowserSessionOut(browser_session_id=r.browser_session_id, task_id=r.task_id,
                               session_label=r.session_label, session_status=r.session_status,
                               current_url=r.current_url, current_title=r.current_title,
                               current_activity=r.current_activity, frame_seq_no=r.frame_seq_no,
-                              frame_time=r.frame_time) for r in rows]
+                              frame_time=r.frame_time, live_available=live_available(r),
+                              handoff_state=r.handoff_state, handoff_reason=r.handoff_reason,
+                              handoff_deadline=r.handoff_deadline) for r in rows]

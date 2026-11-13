@@ -226,6 +226,15 @@ class Pipeline:
         self._next_n = (mx or 0) + 1
 
     # ------------------------------------------------------------ 波次：搜索 → 读取 → 抽取
+    def _handoff(self, c: TaskExecContext):
+        """遇到人机验证/登录墙时请求人工接管（见 orchestrator/takeover.py）。"""
+        from .takeover import request_takeover
+
+        async def cb(sess, reason: str) -> bool:
+            return await request_takeover(c, sess.browser_session_id, reason)
+
+        return cb
+
     def _as_query(self, q) -> SearchQuery:
         """兼容旧格式（纯字符串）与新格式（SearchQuery 字典）。"""
         if isinstance(q, SearchQuery):
@@ -332,7 +341,7 @@ class Pipeline:
 
     async def _search_fn(self, c: TaskExecContext, sess, queries: list[SearchQuery], *, refine: bool) -> StepResult:
         report = await browser_search(sess, queries, exclude_domains=self.spec.scope.exclude_domains,
-                                      before_each=c.check)
+                                      before_each=c.check, on_blocked=self._handoff(c))
         refined: list[str] = []
         # 无结果 / 结果全部无关的查询：参考实际返回改写一次再搜（仅第一轮，最多 3 条）
         weak = [q.query for q in queries if report.hit_counts.get(q.query, 0) == 0]
@@ -348,7 +357,7 @@ class Pipeline:
                 new_qs = []
             if new_qs:
                 extra = await browser_search(sess, new_qs, exclude_domains=self.spec.scope.exclude_domains,
-                                             before_each=c.check)
+                                             before_each=c.check, on_blocked=self._handoff(c))
                 seen = {normalize_url(h.url) for h in report.hits}
                 report.hits += [h for h in extra.hits if normalize_url(h.url) not in seen]
                 report.per_query.update(extra.per_query)
@@ -409,7 +418,7 @@ class Pipeline:
 
     async def _read_fn(self, c: TaskExecContext, sess, candidate_id: str, url: str) -> StepResult:
         goal = "；".join(self.spec.scope.questions) or self.spec.requirement_text
-        r = await read_source(sess, url, goal=goal, ctx=c)
+        r = await read_source(sess, url, goal=goal, ctx=c, on_blocked=self._handoff(c))
         final = r.final_url or url
         if r.status == "captured" and normalize_url(final) in self.read_urls:
             return StepResult({"status": "duplicate", "url": url, "final_url": final})

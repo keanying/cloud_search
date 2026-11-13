@@ -93,7 +93,9 @@ class SearchReport:
 
 async def browser_search(s: CloudBrowserSession, queries: list[str | SearchQuery], *, per_query: int | None = None,
                          exclude_domains: list[str] | None = None,
-                         before_each: Callable[[], Awaitable[None]] | None = None) -> SearchReport:
+                         before_each: Callable[[], Awaitable[None]] | None = None,
+                         on_blocked: Callable[[CloudBrowserSession, str], Awaitable[bool]] | None = None
+                         ) -> SearchReport:
     """按配置的引擎顺序搜索。strategy=priority：总是先用第一个可用引擎，失败/被拦截/结果无关才换下一个；
     strategy=rotate：每个查询轮换起始引擎以分散负载。"""
     settings = get_settings()
@@ -101,6 +103,7 @@ async def browser_search(s: CloudBrowserSession, queries: list[str | SearchQuery
     exclude = [d.lower().lstrip(".") for d in (exclude_domains or [])]
     report = SearchReport()
     seen: set[str] = set()
+    handed_over: set[str] = set()  # 每个引擎最多请求一次人工接管
     for qi, raw in enumerate(queries):
         sq = raw if isinstance(raw, SearchQuery) else SearchQuery(query=raw)
         if before_each:
@@ -117,15 +120,29 @@ async def browser_search(s: CloudBrowserSession, queries: list[str | SearchQuery
             engines = engines[qi % len(engines):] + engines[: qi % len(engines)]
         got: list[SearchHit] = []
         for name in engines:
+            engine = all_engines()[name]
             try:
                 async with s.lock:
-                    got = await all_engines()[name].search(s, sq.query, per_query, lang=sq.language,
-                                                           recency=sq.recency)
+                    got = await engine.search(s, sq.query, per_query, lang=sq.language, recency=sq.recency)
             except EngineBlocked:
-                health.block(name)
-                report.blocked_engines.append(name)
-                log.warning("search engine %s blocked; cooling down", name)
-                continue
+                # 人机验证：请用户在实时画面中处理；处理完成后在同一引擎重试一次
+                resolved = False
+                if on_blocked is not None and name not in handed_over:
+                    handed_over.add(name)
+                    label = getattr(getattr(engine, "cfg", None), "label", None) or name
+                    resolved = await on_blocked(s, f"{label} 要求人机验证，请完成验证后点“完成”")
+                if resolved:
+                    try:
+                        async with s.lock:
+                            got = await engine.search(s, sq.query, per_query, lang=sq.language, recency=sq.recency)
+                    except Exception as e:  # noqa: BLE001
+                        log.warning("search engine %s still unavailable after takeover: %s", name, e)
+                        got = []
+                if not got:
+                    health.block(name)
+                    report.blocked_engines.append(name)
+                    log.warning("search engine %s blocked; cooling down", name)
+                    continue
             except Exception as e:  # noqa: BLE001
                 if is_network_error(e):
                     health.block(name, settings.search_unreachable_cooldown_s)

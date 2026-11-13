@@ -194,7 +194,7 @@ def fake_browser(env, monkeypatch):
             async with session_scope() as s:
                 (await s.get(BrowserSession, bsid)).session_status = "closed"
 
-    async def fake_search(sess, queries, *, per_query=None, exclude_domains=None, before_each=None):
+    async def fake_search(sess, queries, *, per_query=None, exclude_domains=None, before_each=None, on_blocked=None):
         rep = SearchReport()
         for raw in queries:
             q = getattr(raw, "query", raw)
@@ -210,7 +210,7 @@ def fake_browser(env, monkeypatch):
             rep.hit_counts[q] = len(urls)
         return rep
 
-    async def fake_read(sess, url, *, goal, ctx, allow_interaction=True):
+    async def fake_read(sess, url, *, goal, ctx, allow_interaction=True, on_blocked=None):
         await ctx.check()
         fb.reads.append(url)
         if fb.read_gate is not None:

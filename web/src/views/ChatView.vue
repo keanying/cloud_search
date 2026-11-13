@@ -8,6 +8,9 @@ import RightPanel from '@/components/panel/RightPanel.vue'
 import { ChatActionsKey } from '@/lib/chatActions'
 import { taskStatusLabel } from '@/lib/format'
 import { useChatStore } from '@/stores/chat'
+import { usePrefsStore } from '@/stores/prefs'
+import type { ProgressPart, TakeoverPart } from '@/api/types'
+import { ACTIVE_STATUSES } from '@/lib/format'
 import { usePanelStore } from '@/stores/panel'
 import { useToastStore } from '@/stores/toast'
 
@@ -15,6 +18,7 @@ const props = defineProps<{ id: string }>()
 const chat = useChatStore()
 const panel = usePanelStore()
 const toast = useToastStore()
+const prefs = usePrefsStore()
 
 const text = ref('')
 const mode = ref<ModeSelection>('auto')
@@ -76,6 +80,34 @@ async function stopTurn() {
     stopSubmitting.value = false
   }
 }
+
+/**
+ * 自动打开浏览器阅览：
+ * - 任务开始使用云端浏览器（progress.browser_available）且仍在执行时，按设置自动打开一次；用户关闭后同一任务不再弹出
+ * - 任务请求人工协助（takeover 卡片 requested）时，总是打开到对应会话
+ */
+const handledTakeovers = new Set<string>()
+watch(
+  () => chat.messages.flatMap((m) => m.parts.filter((p) => p.type === 'progress' || p.type === 'takeover')),
+  (parts) => {
+    for (const p of parts) {
+      if (p.type === 'takeover') {
+        const t = p as TakeoverPart
+        if (t.state === 'requested' && !handledTakeovers.has(t.part_id)) {
+          handledTakeovers.add(t.part_id)
+          panel.openBrowser(t.task_id, t.browser_session_id)
+        }
+        continue
+      }
+      const pr = p as ProgressPart
+      const status = chat.tasks[pr.task_id]?.task_status ?? pr.task_status
+      if (!prefs.autoOpenBrowser || !pr.browser_available || !ACTIVE_STATUSES.has(status)) continue
+      if (panel.autoOpenedTaskIds.includes(pr.task_id)) continue
+      panel.autoOpenBrowser(pr.task_id)
+    }
+  },
+  { deep: true },
+)
 
 // 只有后端确认停止后才提示
 watch(
