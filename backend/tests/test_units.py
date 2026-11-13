@@ -78,6 +78,14 @@ def test_search_helpers():
         "https://example.com/a?b=1"
     junk = [SearchHit(engine="b", query="q", rank=i, url="https://www.google.com/", title="Google") for i in range(5)]
     assert not looks_relevant("故宫博物院 开放时间", junk)
+    decoy = [SearchHit(engine="b", query="q", rank=i, url=f"https://jingyan.baidu.com/{i}",
+                       title="东芝打印机扫描文件在电脑哪里找", snippet="2024年 扫描时间设置方法") for i in range(5)]
+    assert not looks_relevant("故宫博物院 开放时间 官网", decoy)  # 只共享“时间”这类常见词不算相关
+    good = [SearchHit(engine="b", query="q", rank=1, url="https://www.dpm.org.cn/Visit.html", title="导览 - 故宫博物院",
+                      snippet="故宫博物院开放时间"),
+            SearchHit(engine="b", query="q", rank=2, url="https://x.cn", title="故宫开放时间 2026", snippet=None),
+            SearchHit(engine="b", query="q", rank=3, url="https://y.cn", title="别的", snippet=None)]
+    assert looks_relevant("故宫博物院 开放时间 官网", good)
     hits = [SearchHit(engine="b", query=q, rank=r, url=f"https://{q}-{r}.com/", title="t")
             for q in ("q1", "q2") for r in (1, 2, 3)]
     picked = rank_hits(hits, 4)

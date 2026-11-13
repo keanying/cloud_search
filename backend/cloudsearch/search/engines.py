@@ -51,15 +51,21 @@ def _grams(text: str) -> set[str]:
 
 
 def looks_relevant(query: str, hits: list[SearchHit]) -> bool:
-    """诱饵结果检测：前几条结果的标题/摘要与查询完全无交集时视为无效结果页。"""
+    """诱饵结果检测：前 5 条中至少 2 条（结果少于 3 条时至少 1 条）覆盖查询词约三分之一以上，
+    否则视为无效结果页（例如被风控时返回的无关热门内容），换下一个引擎。"""
     if not hits:
         return False
     q = _grams(query)
     if not q:
         return True
     top = hits[:5]
-    matched = sum(1 for h in top if q & _grams(f"{h.title or ''} {h.snippet or ''} {h.url}"))
-    return matched >= max(1, len(top) // 3)
+
+    def covered(h: SearchHit) -> bool:
+        g = _grams(f"{h.title or ''} {h.snippet or ''}")
+        return len(q & g) / len(q) >= 0.34
+
+    need = 2 if len(top) >= 3 else 1
+    return sum(1 for h in top if covered(h)) >= need
 
 
 class SearchEngine:
