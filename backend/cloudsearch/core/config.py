@@ -198,6 +198,8 @@ class Settings(BaseSettings):
     task_max_queries: int = 6
     task_read_concurrency: int = 3
     task_max_llm_requests: int = 60
+    # 研究类任务“反思→补查”的最多轮数（数据任务最多 1 轮；简答不补查）
+    task_max_extra_waves: int = 2
 
     # worker（embedded=true 时嵌入 API 进程，单进程即可运行；生产建议独立 worker）
     embedded_worker: bool = True

@@ -82,6 +82,8 @@ async def plan_queries(spec: TaskSpec, ctx: ExecContext) -> QueryPlan:
         if q.source:
             q.query = re.sub(r'(-?site:\S+|["“”])', " ", q.query).strip() or q.query
     plan.queries = _ensure_coverage(spec, plan)
+    plan.sub_questions = [q.strip() for q in plan.sub_questions if q.strip()][:6] or list(spec.scope.questions[:3]) \
+        or [spec.requirement_text]
     plan.preferred_sources = [d.lower().strip().lstrip(".") for d in plan.preferred_sources if "." in d][:8]
     return plan
 
@@ -91,11 +93,13 @@ def _domain(url: str) -> str:
 
 
 async def select_candidates(spec: TaskSpec, intent: str, hits: list[SearchHit], limit: int,
-                            ctx: ExecContext) -> list[tuple[int, str]]:
+                            ctx: ExecContext, *, preferred: list[str] | None = None) -> list[tuple[int, str]]:
     """让模型按意图与来源权威性挑选要读的候选；返回 [(原列表下标, 理由)]，由程序校验编号。"""
+    from ...search import credibility
+
     shown = hits[:MAX_SELECT_CANDIDATES]
-    lines = "\n".join(f"{i} | {(h.title or '')[:60]} | {_domain(h.url)} | {(h.snippet or '')[:100]} | {h.query[:40]}"
-                      for i, h in enumerate(shown))
+    lines = "\n".join(f"{i} | {(h.title or '')[:60]} | {_domain(h.url)}（{credibility.label(h.url, preferred=preferred)}）"
+                      f" | {(h.snippet or '')[:100]} | {h.query[:40]}" for i, h in enumerate(shown))
     out = await run_agent(SELECT_SPEC, build_select_prompt(intent=intent, spec_json=spec.model_dump_json(),
                                                            candidates=lines, limit=limit), ctx=ctx)
     picked: list[tuple[int, str]] = []

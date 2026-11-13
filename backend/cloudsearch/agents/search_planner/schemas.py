@@ -12,7 +12,9 @@ class QueryPlan(BaseModel):
     key_entities: list[str] = Field(default_factory=list, description="必须出现的核心对象/专有名词（用于精确匹配）")
     preferred_sources: list[str] = Field(default_factory=list,
                                          description="适合该需求的权威站点域名，如 dpm.org.cn、gov.cn；没有把握就留空")
-    queries: list[SearchQuery] = Field(min_length=1)
+    sub_questions: list[str] = Field(default_factory=list,
+                                     description="把需求拆成的子问题（也是报告的提纲）：简答 1-3 个，研究/报告 3-6 个")
+    queries: list[SearchQuery] = Field(min_length=1, description="每条查询的 purpose 写它服务的子问题（原文照抄）")
 
 
 class SelectedCandidate(BaseModel):

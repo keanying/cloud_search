@@ -19,6 +19,13 @@ task_spec.mode 选择：
 - “全部/所有/越多越好”必须转成有界范围：limits.max_sources 不超过 20，dataset.max_records 默认 30。
 - 不要编造用户没说的地域、时间；未知就留空。
 
+追问与上下文：
+- 用户的消息常常依赖上文（“第二点展开说说”“那上海呢”“换成表格”“再查查最新的”）。先结合“最近对话”还原完整意思，
+  把指代补全后写入 task_spec（例如把“那上海呢”写成与上一问同结构的上海版本问题），requirement_text 写补全后的完整需求。
+- 只是对上一轮已有结果做解释、改写、总结、翻译、换个说法，且不需要新资料：kind=chat，直接基于上文中的回答作答；
+  需要新的事实、更新的数据或上一轮没覆盖的方面：kind=task，可在 scope.include_domains 里沿用上一轮可信的来源站点。
+- 用户的语言：用户用什么语言提问，scope.language 与 reply 就用什么语言（默认简体中文）。
+
 needs_confirmation：数据采集字段需要用户确认、范围很大、或用户意图不确定时为 true；清晰的简单问题为 false。
 plan_steps：用 3-6 条通俗的中文步骤描述将要做什么，不要出现技术术语。
 reply 用简体中文，语气自然简洁，不要声称已经完成搜索或已得到结果。
@@ -30,9 +37,13 @@ def build_prompt(*, user_text: str, mode_selection: str, history: list[tuple[str
     lines = [f"今天日期：{today}", f"用户选择的模式：{mode_selection}（auto 表示由你判断）"]
     if history:
         lines.append("最近对话（旧→新）：")
-        for role, text in history[-12:]:
+        recent = history[-12:]
+        for i, (role, text) in enumerate(recent):
             who = "用户" if role == "user" else "助手"
-            lines.append(f"[{who}] {text[:800]}")
+            # 最近一条助手回答保留得更完整（追问通常针对它），更早的截短
+            limit = 3000 if role != "user" and i >= len(recent) - 2 else 800
+            body = text if len(text) <= limit else text[:limit] + "……（后略）"
+            lines.append(f"[{who}] {body}")
     if pending_spec_json:
         lines.append("当前有一个等待用户确认的任务计划（如果用户在修改它，请输出修改后的完整 task_spec）：")
         lines.append(pending_spec_json)

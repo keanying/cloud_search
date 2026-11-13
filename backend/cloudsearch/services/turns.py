@@ -25,6 +25,25 @@ def message_text(m: Message) -> str:
     return "\n".join(p.get("text", "") for p in (m.parts or []) if p.get("type") == "text").strip()
 
 
+def message_context(m: Message) -> str:
+    """给需求编译看的历史：正文 + 关键数字 + 引用来源（站点/标题），便于理解追问与沿用来源。"""
+    text = message_text(m)
+    if m.role != "assistant":
+        return text
+    extra = []
+    for p in m.parts or []:
+        if p.get("type") == "highlights":
+            extra.append("关键数字：" + "；".join(f"{h.get('label')} {h.get('value')}{h.get('unit') or ''}"
+                                               for h in p.get("items", [])))
+        elif p.get("type") == "source":
+            srcs = p.get("sources", [])[:8]
+            if srcs:
+                extra.append("来源：" + "；".join(
+                    f"[{x.get('n')}] {(x.get('title') or '')[:40]}（{x.get('site_name') or ''} {x.get('url', '')}）"
+                    for x in srcs))
+    return "\n".join([text, *extra]).strip() if text else ""
+
+
 async def claim_turn(worker_id: str) -> str | None:
     now = utcnow()
     async with session_scope() as s:
@@ -55,7 +74,7 @@ async def process_turn(message_id: str, worker_id: str) -> None:
         history_rows = (await s.execute(select(Message).where(
             Message.conversation_id == assistant.conversation_id, Message.created_time < user_msg.created_time,
             Message.message_status == "final").order_by(Message.created_time.desc()).limit(12))).scalars().all()
-        history = [(m.role, message_text(m)) for m in reversed(history_rows) if message_text(m)]
+        history = [(m.role, message_context(m)) for m in reversed(history_rows) if message_text(m)]
         pending = (await s.execute(select(Task).where(
             Task.conversation_id == assistant.conversation_id, Task.task_status == "draft")
             .order_by(Task.created_time.desc()).limit(1))).scalar()

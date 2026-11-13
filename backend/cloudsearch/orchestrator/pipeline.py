@@ -12,20 +12,19 @@ import re
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import urlsplit
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..agents import analyst, coordinator, extractor, report_writer, search_planner, verifier
 from ..agents.browser_researcher import read_source
-from ..agents.coordinator import MAX_EXTRA_WAVES
 from ..browser.pool import get_pool
 from ..contracts import EvidenceRef, SearchHit, SearchQuery, SourceDoc, TaskSpec
 from ..core.config import get_settings
 from ..core.ids import iso, new_id, sha256_bytes, utcnow
 from ..core.storage import get_storage
 from ..db.models import Artifact, Evidence, SourceCandidate, SourceRevision
+from ..search import credibility
 from ..search.service import browser_search, normalize_url, rank_hits
 from . import exporters
 from .context import BudgetExhausted, LeaseLost, StepResult, TaskExecContext, TaskInterrupted
@@ -49,11 +48,13 @@ class SourceInfo:
     access_method: str
     content_ref: str
     text: str | None = None
+    credibility: str = "unknown"
 
     def public(self) -> dict[str, Any]:
         return {"n": self.n, "source_revision_id": self.source_revision_id, "url": self.url, "title": self.title,
                 "site_name": self.site_name, "publish_time_text": self.publish_time_text,
-                "retrieved_time": self.retrieved_time, "access_method": self.access_method}
+                "retrieved_time": self.retrieved_time, "access_method": self.access_method,
+                "credibility": self.credibility, "credibility_label": credibility.LABELS[self.credibility]}
 
 
 @dataclass
@@ -91,6 +92,8 @@ class Pipeline:
         self.used_queries: list[str] = []
         self.intent: str = spec.requirement_text
         self.preferred_sources: list[str] = []
+        self.sub_questions: list[str] = list(spec.scope.questions)
+        self.key_entities: list[str] = []
         self.findings: list[EvidenceRef] = []
         self.records: list[dict] = []
         self.blocked = 0
@@ -116,6 +119,8 @@ class Pipeline:
                                       input_json={"limits": self.spec.limits.model_dump()})
         self.intent = planned.get("intent") or self.spec.requirement_text
         self.preferred_sources = planned.get("preferred_sources", [])
+        self.sub_questions = planned.get("sub_questions") or list(self.spec.scope.questions) or [self.spec.requirement_text]
+        self.key_entities = planned.get("key_entities", [])
         queries = [self._as_query(q) for q in planned["queries"]]
         await self._stage("plan", "done", queries=len(queries))
 
@@ -136,18 +141,27 @@ class Pipeline:
             await self._wave(1, queries, self.spec.limits.max_sources, get_sessions, settings.task_read_concurrency)
 
             if "coverage" in self.stages:
+                # 规划 → 搜索 → 反思（按子问题评估覆盖）→ 针对缺口补查，最多 max_waves 轮
                 await self._stage("coverage")
-                extra: list[str] = []
-                if self.sources and MAX_EXTRA_WAVES > 0:
-                    review = await self.ctx.step("coverage:w1", self._coverage_fn, agent_role="coordinator")
-                    extra = review["extra_queries"]
+                max_waves = settings.task_max_extra_waves if self.spec.mode in ("research", "hybrid") else \
+                    min(1, settings.task_max_extra_waves)
+                did_extra = False
+                for w in range(1, max_waves + 1):
+                    if not self.sources:
+                        break
+                    review = await self.ctx.step(f"coverage:w{w}", lambda c, w=w: self._coverage_fn(c, w, max_waves),
+                                                 agent_role="coordinator")
                     self.coverage_missing = review.get("missing_aspects", [])
-                if extra:
+                    extra = review["extra_queries"]
+                    if not extra:
+                        break
+                    did_extra = True
                     await self._inc(queries=len(extra))
                     extra_limit = min(4, max(2, self.spec.limits.max_sources // 2))
-                    await self._wave(2, [self._as_query(q) for q in extra], extra_limit, get_sessions,
+                    await self._wave(w + 1, [self._as_query(q) for q in extra], extra_limit, get_sessions,
                                      settings.task_read_concurrency)
-                await self._stage("coverage", "done" if extra else "skipped")
+                    await self._stage("coverage")
+                await self._stage("coverage", "done" if did_extra else "skipped")
         await update_progress(self.ctx.task_id, browser_available=True)  # 会话已关闭，保留最后帧供查看
 
         outcome = PipelineOutcome(technical_failures=self.failed)
@@ -195,9 +209,13 @@ class Pipeline:
             outcome.bundles += written.get("bundles", [])
             await self._stage("write", "done")
             used = written["used"]
+            if written.get("highlights"):
+                outcome.parts.append({"type": "highlights", "part_id": f"highlights-{self.ctx.task_id}",
+                                      "items": [{**h, "url": (self._citation(h["source_n"]) or {}).get("url")}
+                                                for h in written["highlights"]]})
             outcome.parts.append({
                 "type": "text", "part_id": f"answer-{self.ctx.task_id}", "text": written["markdown"],
-                "citations": [self._citation(n) for n in used if self._citation(n)]})
+                "citations": written.get("citations") or [self._citation(n) for n in used if self._citation(n)]})
         else:
             text = self._dataset_summary(rows)
             if analysis:
@@ -206,13 +224,18 @@ class Pipeline:
                                   "citations": []})
         outcome.parts.append({"type": "source", "part_id": f"sources-{self.ctx.task_id}", "task_id": self.ctx.task_id,
                               "sources": [s.public() for s in sorted(self.sources.values(), key=lambda s: s.n)]})
+        if "write" in self.stages and written.get("follow_ups"):
+            outcome.parts.append({"type": "suggestions", "part_id": f"suggestions-{self.ctx.task_id}",
+                                  "items": written["follow_ups"]})
         outcome.delivered = True
         return outcome
 
     def _citation(self, n: int) -> dict | None:
         for s in self.sources.values():
             if s.n == n:
-                return {"n": n, "source_revision_id": s.source_revision_id, "url": s.url, "title": s.title}
+                return {"n": n, "source_revision_id": s.source_revision_id, "url": s.url, "title": s.title,
+                        "site_name": s.site_name, "publish_time_text": s.publish_time_text,
+                        "credibility": s.credibility, "credibility_label": credibility.LABELS[s.credibility]}
         return None
 
     def _dataset_summary(self, rows: list[dict]) -> str:
@@ -323,7 +346,8 @@ class Pipeline:
         self.sources[out["source_revision_id"]] = SourceInfo(
             n=out["n"], source_revision_id=out["source_revision_id"], url=out["final_url"] or out["url"],
             title=out.get("title"), site_name=out.get("site_name"), publish_time_text=out.get("publish_time_text"),
-            retrieved_time=out["retrieved_time"], access_method=out["access_method"], content_ref=out["content_ref"])
+            retrieved_time=out["retrieved_time"], access_method=out["access_method"], content_ref=out["content_ref"],
+            credibility=credibility.classify(out["final_url"] or out["url"], preferred=self.preferred_sources))
 
     async def _extract_one(self, srid: str) -> None:
         async with self._llm_sem:
@@ -347,7 +371,7 @@ class Pipeline:
     async def _plan_fn(self, c: TaskExecContext) -> StepResult:
         plan = await search_planner.plan_queries(self.spec, c)
         return StepResult({"intent": plan.intent, "key_entities": plan.key_entities,
-                           "preferred_sources": plan.preferred_sources,
+                           "preferred_sources": plan.preferred_sources, "sub_questions": plan.sub_questions,
                            "queries": [q.model_dump() for q in plan.queries]})
 
     async def _search_fn(self, c: TaskExecContext, sess, queries: list[SearchQuery], *, refine: bool) -> StepResult:
@@ -404,7 +428,8 @@ class Pipeline:
         def fallback() -> list[dict]:
             pref = set(self.preferred_sources) | {d.lower() for d in self.spec.scope.include_domains}
             ranked = rank_hits(objs, len(objs))
-            ranked.sort(key=lambda h: 0 if any((urlsplit(h.url).hostname or "").endswith(d) for d in pref) else 1)
+            # 稳定排序：先按可信度（含规划认定的权威站点），同档内保持搜索排名交错顺序
+            ranked.sort(key=lambda h: -credibility.score(h.url, preferred=list(pref)))
             by_url = {h["url"]: h for h in hits}
             return [by_url[h.url] for h in ranked[:limit]]
 
@@ -412,7 +437,8 @@ class Pipeline:
             return fallback()
 
         async def select_fn(c: TaskExecContext) -> StepResult:
-            picked = await search_planner.select_candidates(self.spec, self.intent, objs, limit, c)
+            picked = await search_planner.select_candidates(self.spec, self.intent, objs, limit, c,
+                                                            preferred=self.preferred_sources)
             return StepResult({"candidate_ids": [hits[i]["candidate_id"] for i, _ in picked],
                                "reasons": [r for _, r in picked]})
 
@@ -471,7 +497,8 @@ class Pipeline:
         text = await self._load_text(src)
         out = await extractor.extract(SourceDoc(n=src.n, source_revision_id=srid, url=src.url, title=src.title,
                                                 site_name=src.site_name, publish_time_text=src.publish_time_text,
-                                                text=text), self.spec, c)
+                                                text=text), self.spec, c, sub_questions=self.sub_questions,
+                                      key_entities=self.key_entities)
         ev_rows: list[Evidence] = []
         findings, records = [], []
 
@@ -516,13 +543,50 @@ class Pipeline:
 
         return StepResult({"relevant": out.relevant, "findings": findings, "records": records}, persist)
 
-    async def _coverage_fn(self, c: TaskExecContext) -> StepResult:
-        digest = "\n".join(f"[{e.n}] {e.claim}" for e in self.findings[:60])
+    def _aspect_of(self, aspect: str | None) -> str | None:
+        """把抽取结果的 aspect 归到最接近的子问题（原文照抄优先，其次包含关系/字面重合）。"""
+        if not aspect:
+            return None
+        if aspect in self.sub_questions:
+            return aspect
+        for q in self.sub_questions:
+            if aspect in q or q in aspect:
+                return q
+        best, score = None, 0.0
+        a = set(aspect)
+        for q in self.sub_questions:
+            sc = len(a & set(q)) / (len(a | set(q)) or 1)
+            if sc > score:
+                best, score = q, sc
+        return best if score >= 0.35 else None
+
+    def _evidence_digest(self, per_aspect: int = 8) -> tuple[str, list[str]]:
+        cred = {s.n: credibility.LABELS[s.credibility] for s in self.sources.values()}
+        groups: dict[str, list[EvidenceRef]] = {q: [] for q in self.sub_questions}
+        other: list[EvidenceRef] = []
+        for e in self.findings:
+            q = self._aspect_of(e.aspect)
+            (groups[q] if q else other).append(e)
+        lines = []
+        for q, evs in groups.items():
+            n_src = len({e.n for e in evs})
+            lines.append(f"## {q}（证据 {len(evs)} 条，来源 {n_src} 个）")
+            lines += [f"[{e.n}·{cred.get(e.n, '')}] {e.claim}" for e in evs[:per_aspect]]
+        if other:
+            lines.append("## 其他")
+            lines += [f"[{e.n}·{cred.get(e.n, '')}] {e.claim}" for e in other[:per_aspect]]
         if self.records:
-            digest += "\n记录：" + "；".join(
-                f"{r['entity_name']}（{sum(v is not None for v in r['values'].values())}个字段有值）"
-                for r in self.records[:30])
-        review = await coordinator.review_coverage(self.spec, self.used_queries, digest, c)
+            lines.append("## 已采集记录")
+            lines.append("；".join(f"{r['entity_name']}（{sum(v is not None for v in r['values'].values())}个字段有值）"
+                                  for r in self.records[:30]))
+        empty = [q for q, evs in groups.items() if not evs] if self.spec.mode != "dataset" else []
+        return "\n".join(lines), empty
+
+    async def _coverage_fn(self, c: TaskExecContext, wave: int = 1, max_waves: int = 1) -> StepResult:
+        digest, empty = self._evidence_digest()
+        review = await coordinator.review_coverage(self.spec, self.used_queries, digest, c,
+                                                   sub_questions=self.sub_questions, empty_aspects=empty,
+                                                   wave=wave, max_waves=max_waves)
         return StepResult(review.model_dump())
 
     async def _verify_fn(self, c: TaskExecContext) -> StepResult:
@@ -654,25 +718,52 @@ class Pipeline:
 
         return StepResult({"results": data, "artifact_ids": [], "xlsx": xlsx}, persist)
 
-    async def _write_fn(self, c: TaskExecContext, verified: dict, analysis: list[dict],
-                        rows: list[dict]) -> StepResult:
+    def _writer_evidence(self, verified: dict, budget: int = 40000) -> tuple[str, dict[int, str], dict[int, str]]:
+        """给撰写智能体的证据块：按来源分组，标注可信度与发布时间；超出预算时优先保留高可信来源，
+        并让每个子问题至少有来源入选。返回 (证据块, 每来源全部摘录文本, 每来源代表摘录)。"""
         rejected = set(verified.get("rejected", []))
         conflicted = set(verified.get("conflicted", []))
         by_n: dict[int, list[EvidenceRef]] = {}
         for e in self.findings:
             if e.evidence_id not in rejected:
                 by_n.setdefault(e.n, []).append(e)
-        blocks = []
-        for src in sorted(self.sources.values(), key=lambda s: s.n):
-            evs = by_n.get(src.n, [])
-            if not evs:
-                continue
-            pub = f"，页面声明发布时间 {src.publish_time_text}" if src.publish_time_text else "，发布时间未知"
-            lines = [f"[{src.n}] {src.title or ''}（{src.site_name or ''}{pub}）{src.url}"]
-            for e in evs[:10]:
+        srcs = [s for s in sorted(self.sources.values(), key=lambda s: s.n) if by_n.get(s.n)]
+        blocks: dict[int, str] = {}
+        for src in srcs:
+            pub = f"发布于 {src.publish_time_text}" if src.publish_time_text else "发布时间未知"
+            lines = [f"[{src.n}] {src.title or ''}（{credibility.LABELS[src.credibility]}；{src.site_name or ''}；"
+                     f"{pub}）{src.url}"]
+            for e in by_n[src.n][:10]:
                 flag = "【存在冲突】" if e.evidence_id in conflicted else ""
-                lines.append(f"- {flag}{e.claim}：「{e.quote[:200]}」")
-            blocks.append("\n".join(lines))
+                aspect = f"〔{e.aspect}〕" if getattr(e, "aspect", None) else ""
+                lines.append(f"- {flag}{aspect}{e.claim}：「{e.quote[:200]}」")
+            blocks[src.n] = "\n".join(lines)
+        chosen: list[int] = [s.n for s in srcs]
+        if sum(len(b) for b in blocks.values()) > budget:
+            ranked = sorted(srcs, key=lambda s: (-credibility.SCORES[s.credibility], -len(by_n[s.n]), s.n))
+            chosen, used, covered = [], 0, set()
+            # 先保证每个子问题至少一个来源，再按可信度填满预算
+            for s in ranked:
+                aspects = {self._aspect_of(getattr(e, "aspect", None)) for e in by_n[s.n]} - {None}
+                if aspects - covered and used + len(blocks[s.n]) <= budget:
+                    chosen.append(s.n)
+                    used += len(blocks[s.n])
+                    covered |= aspects
+            for s in ranked:
+                if s.n not in chosen and used + len(blocks[s.n]) <= budget:
+                    chosen.append(s.n)
+                    used += len(blocks[s.n])
+            chosen.sort()
+        evidence_text = {n: "\n".join(f"{e.claim} {e.quote}" for e in by_n[n]) for n in chosen}
+        best_quote = {}
+        for n in chosen:
+            evs = sorted(by_n[n], key=lambda e: (e.evidence_id in conflicted, -len(e.quote)))
+            best_quote[n] = evs[0].quote[:240] if evs else ""
+        return "\n\n".join(blocks[n] for n in chosen), evidence_text, best_quote
+
+    async def _write_fn(self, c: TaskExecContext, verified: dict, analysis: list[dict],
+                        rows: list[dict]) -> StepResult:
+        evidence_block, evidence_text, best_quote = self._writer_evidence(verified)
         analysis_block = ""
         if rows and self.spec.dataset:
             analysis_block = f"数据集：共 {len(rows)} 条记录（{self.spec.dataset.entity}）。\n"
@@ -687,14 +778,16 @@ class Pipeline:
         gaps += [f"覆盖不足：{m}" for m in self.coverage_missing]
         is_answer = self.spec.mode == "quick_search"
         report = self.spec.report
+        outline = (report.outline if report and report.outline else []) or list(self.sub_questions)
         draft, used, charts = await report_writer.write(
             kind="answer" if is_answer else "report",
             question=report.question if report else "；".join(self.spec.scope.questions) or self.spec.requirement_text,
-            outline=report.outline if report else [], audience=report.audience if report else None,
-            evidence_block="\n\n".join(blocks), valid_ns={s.n for s in self.sources.values()},
-            analysis_block=analysis_block, conflicts_block=conflicts_block, gaps_block="\n".join(gaps), ctx=c)
+            outline=outline, audience=report.audience if report else None,
+            evidence_block=evidence_block, valid_ns=set(evidence_text) or {s.n for s in self.sources.values()},
+            analysis_block=analysis_block, conflicts_block=conflicts_block, gaps_block="\n".join(gaps), ctx=c,
+            today=utcnow().strftime("%Y-%m-%d"), evidence_by_n=evidence_text)
         title = draft.title or self.spec.title
-        full_md = report_writer.assemble_markdown(draft, charts, include_title=True)
+        full_md = report_writer.assemble_markdown(draft, charts, include_title=True, with_highlights=True)
         if is_answer:
             chat_md = report_writer.assemble_markdown(draft, charts, include_title=False)
         else:
@@ -704,11 +797,20 @@ class Pipeline:
                        + "\n完整报告（含正文、图表与参考来源）可在下方下载 Word / PDF，或点「查看完整报告」。")
         cited = [s.public() for s in sorted(self.sources.values(), key=lambda s: s.n) if s.n in used]
         bundle = await self._save_report_bundle(c, title, full_md, cited)
+        citations = []
+        for n in used:
+            cit = self._citation(n)
+            if cit:
+                cit["quote"] = best_quote.get(n, "")
+                citations.append(cit)
 
         async def persist(s: AsyncSession) -> None:
             s.add_all(bundle["rows"])
 
         return StepResult({"title": title, "markdown": chat_md, "used": used, "limitations": draft.limitations,
+                           "citations": citations,
+                           "highlights": [h.model_dump() for h in draft.highlights],
+                           "follow_ups": draft.follow_ups,
                            "bundles": [bundle["part"]]}, persist)
 
     async def _save_report_bundle(self, c: TaskExecContext, title: str, markdown: str, sources: list[dict]) -> dict:

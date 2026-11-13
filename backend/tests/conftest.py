@@ -82,6 +82,9 @@ class FakeLLM:
         "queries": [{"query": "故宫 开放时间", "purpose": "开放时间", "language": "zh"}]})
     select_indices: list[int] | None = None  # None = 全选
     refine_output: list[dict] = field(default_factory=list)
+    coverage_outputs: list[dict] = field(default_factory=list)  # coordinator 覆盖评估，按顺序弹出
+    writer_extra: dict = field(default_factory=dict)
+    extract_two: bool = False  # 额外抽取第二句（含票价数字）  # 合并进 report_writer 输出（highlights/follow_ups 等）
 
     def _model(self, role: str, builder):
         async def fn(messages, info: AgentInfo):
@@ -118,6 +121,9 @@ class FakeLLM:
             sentence = re.split(r"[。\n]", text)[0] + "。"
             out = {"relevant": True, "findings": [{"claim": "开放安排", "quote": sentence, "aspect": "开放时间"}],
                    "records": []}
+            if self.extract_two:
+                second = re.split(r"[。\n]", text)[1] + "。"
+                out["findings"].append({"claim": "票价", "quote": second, "aspect": "票价"})
             if "需要抽取的字段" in prompt:
                 m = re.search(r"名称[:：](\S+?)[，,]", text)
                 price = re.search(r"票价[:：](\S+?)元", text)
@@ -133,13 +139,15 @@ class FakeLLM:
         roles = {
             "requirement_compiler": compiler,
             "search_planner": self._planner,
-            "coordinator": lambda p: {"sufficient": True, "missing_aspects": [], "extra_queries": []},
+            "coordinator": lambda p: (self.coverage_outputs.pop(0) if self.coverage_outputs else
+                                      {"sufficient": True, "missing_aspects": [], "extra_queries": []}),
             "browser_researcher": lambda p: {"action": "finish", "reason": "ok"},
             "extractor": extractor,
             "verifier": lambda p: {"conflicts": [], "unsupported": []},
             "analyst": lambda p: {"analyses": [{"title": "数量", "description": "记录数",
                                                 "metrics": [{"func": "count", "alias": "数量"}]}]},
-            "report_writer": lambda p: {"title": "故宫开放时间", "markdown": self.writer_markdown, "limitations": []},
+            "report_writer": lambda p: {"title": "故宫开放时间", "markdown": self.writer_markdown, "limitations": [],
+                                        **self.writer_extra},
         }
         for role, b in roles.items():
             set_model_override(role, self._model(role, b))
