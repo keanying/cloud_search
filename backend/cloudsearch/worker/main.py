@@ -98,4 +98,6 @@ async def _main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(_main())
+    from ..serve import run_coro
+
+    run_coro(_main())  # 不用 asyncio.run：兼容 PyCharm 调试模式

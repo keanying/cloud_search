@@ -14,4 +14,4 @@ COPY config.example.yaml ./
 RUN uv sync --frozen --no-dev
 ENV PATH="/app/.venv/bin:$PATH"
 EXPOSE 8000
-CMD ["sh", "-c", "alembic -c backend/alembic.ini upgrade head && uvicorn cloudsearch.app:app --host 0.0.0.0 --port 8000 --proxy-headers"]
+CMD ["sh", "-c", "alembic -c backend/alembic.ini upgrade head && python -m cloudsearch.serve --host 0.0.0.0 --port 8000 --forwarded-allow-ips '*'"]

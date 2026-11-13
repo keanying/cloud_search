@@ -119,8 +119,7 @@ cmd_start() {
   local workers="${WORKERS:-$processes}"
   echo "启动云搜浏览器（$host:$port）"
   # 不使用 --reload；单进程 uvicorn。如需多核，可起多个 worker 进程分担任务
-  start_one api "$VENV_PY" -m uvicorn cloudsearch.app:app --host "$host" --port "$port" --proxy-headers \
-    --forwarded-allow-ips="127.0.0.1"
+  start_one api "$VENV_PY" -m cloudsearch.serve --host "$host" --port "$port" --forwarded-allow-ips "127.0.0.1"
   if [ "$embedded" = "0" ]; then
     for i in $(seq 1 "$workers"); do
       CS_WORKER_ID="$(hostname)-worker-$i" start_one "worker-$i" "$VENV_PY" -m cloudsearch.worker.main

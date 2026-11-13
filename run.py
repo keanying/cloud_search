@@ -394,9 +394,10 @@ def serve(cfg: dict, args: argparse.Namespace, pm: list[str] | None) -> None:
     kw = {"cwd": str(ROOT), "env": env}
     if IS_WIN:
         kw["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
-    # 注意：不要加 --reload（Windows 上会改用 SelectorEventLoop，导致 Playwright 无法启动浏览器）
-    procs.append(subprocess.Popen([str(VENV_PY), "-m", "uvicorn", "cloudsearch.app:app", "--host", host,
-                                   "--port", str(port)], **kw))
+    # 用 cloudsearch.serve 启动（自建事件循环，兼容 PyCharm 调试模式；不使用 --reload，
+    # 否则 Windows 上会改用 SelectorEventLoop，Playwright 无法启动浏览器）
+    procs.append(subprocess.Popen([str(VENV_PY), "-m", "cloudsearch.serve", "--host", host, "--port", str(port)],
+                                  **kw))
     if not cfg["embedded"]:
         procs.append(subprocess.Popen([str(VENV_PY), "-m", "cloudsearch.worker.main"], **kw))
     if args.dev and pm:
@@ -404,6 +405,8 @@ def serve(cfg: dict, args: argparse.Namespace, pm: list[str] | None) -> None:
                                       env={**env, "CS_API_PORT": str(port)}))
     local = f"http://127.0.0.1:{port}"
     step("启动服务")
+    if "pydevd" in sys.modules:
+        info("检测到 PyCharm 调试模式：子进程也会被调试器接管，启动和运行较慢；日常使用建议用 Run 或 start.bat")
     if not wait_health(f"{local}/api/health"):
         for p in procs:
             p.terminate()
