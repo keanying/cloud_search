@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.pyc
+backend/.venv/
+backend/data/
+backend/.env
+.pytest_cache/
+.ruff_cache/
+# Node
+node_modules/
+web/dist/
+# OS
+.DS_Store
