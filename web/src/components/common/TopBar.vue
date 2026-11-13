@@ -242,6 +242,9 @@ function goSection(id: string) {
   color: var(--cs-on-bar);
   box-shadow: 0 10px 30px -16px rgba(0, 0, 0, 0.45);
 }
+:global(html.dark) .app-bar {
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.07);
+}
 .bar-btn {
   display: inline-flex;
   height: 2.25rem;

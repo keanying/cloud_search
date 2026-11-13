@@ -36,7 +36,33 @@ async function submit() {
 </script>
 
 <template>
-  <div class="flex min-h-full items-center justify-center px-4 py-10">
+  <div class="flex min-h-full items-center justify-center gap-16 px-4 py-10">
+    <!-- 宽屏：左侧几张粉彩小卡片，说明它会做什么 -->
+    <div class="hidden max-w-md flex-1 lg:block" aria-hidden="true">
+      <h2 class="text-[40px] leading-[1.15] font-bold tracking-tight text-white">一个问题，<br />一份能直接用的成果。</h2>
+      <p class="mt-3 text-[15px] text-slate-400">它会自己去搜、去读、去核对，遇到验证码再叫你帮一下。</p>
+      <div class="relative mt-10 h-[260px]">
+        <div class="card-mint absolute top-0 left-0 w-64 p-4">
+          <div class="text-xs font-bold accent-ink">⏳ 执行中</div>
+          <div class="mt-2 flex gap-2">
+            <div class="tile flex-1 px-3 py-2"><div class="text-2xl font-bold text-white">9</div><div class="text-xs text-slate-300">搜索</div></div>
+            <div class="tile flex-1 px-3 py-2"><div class="text-2xl font-bold text-white">12</div><div class="text-xs text-slate-300">已读来源</div></div>
+          </div>
+        </div>
+        <div class="card-butter absolute top-24 left-48 w-60 rotate-[-3deg] p-4">
+          <div class="text-xs font-bold accent-ink">✋ 需要你</div>
+          <div class="mt-1 text-sm font-semibold text-white">网站要求人机验证，点一下就好</div>
+        </div>
+        <div class="card-lilac absolute top-44 left-6 w-56 rotate-[2deg] p-4">
+          <div class="text-xs font-bold accent-ink">✅ 已完成</div>
+          <div class="mt-1 flex gap-1.5">
+            <span class="pill bg-[var(--cs-surface-solid)] text-slate-200">Word</span>
+            <span class="pill bg-[var(--cs-surface-solid)] text-slate-200">PDF</span>
+            <span class="pill bg-[var(--cs-surface-solid)] text-slate-200">Excel</span>
+          </div>
+        </div>
+      </div>
+    </div>
     <div class="w-full max-w-sm">
       <div class="mb-8 flex flex-col items-center gap-3">
         <BrandLogo :size="56" />
