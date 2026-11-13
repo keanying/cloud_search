@@ -51,7 +51,8 @@ class Settings(BaseSettings):
     task_read_concurrency: int = 3
     task_max_llm_requests: int = 60
 
-    # worker
+    # worker（开发模式下嵌入 API 进程，单命令即可运行；生产建议独立部署 worker）
+    embedded_worker: bool = True
     worker_id: str = Field(default_factory=lambda: f"worker-{os.getpid()}")
     worker_poll_interval_s: float = 1.0
     worker_lease_s: int = 60

@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import re
 from contextlib import AsyncExitStack
@@ -29,7 +28,7 @@ from ..db.models import Artifact, Evidence, SourceCandidate, SourceRevision
 from ..search.service import browser_search, normalize_url, rank_hits
 from . import exporters
 from .context import BudgetExhausted, LeaseLost, StepResult, TaskExecContext, TaskInterrupted
-from .progress import task_stages, update_progress
+from .progress import update_progress
 
 log = logging.getLogger(__name__)
 
