@@ -6,7 +6,7 @@ import MessagePartView from '@/components/parts/MessagePartView.vue'
 import AnswerToolbar from './AnswerToolbar.vue'
 import { modeLabel } from '@/lib/format'
 
-const props = defineProps<{ message: MessageOut }>()
+const props = defineProps<{ message: MessageOut; latest?: boolean }>()
 
 const userText = computed(() =>
   props.message.parts
@@ -50,7 +50,8 @@ const pending = computed(() => props.message.message_status === 'pending')
           <MessagePartView :part="p" :task-id="citeTaskId" :streaming="pending && i === message.parts.length - 1" />
           <AnswerToolbar v-if="p.part_id.startsWith('answer-') && !pending" :message="message" :part="p" />
         </div>
-        <MessagePartView v-else :part="p" :task-id="citeTaskId" />
+        <!-- “接着问”只在最新一条回答下显示，避免历史消息堆满按钮 -->
+        <MessagePartView v-else-if="p.type !== 'suggestions' || latest" :part="p" :task-id="citeTaskId" />
       </template>
       <div v-if="message.message_status === 'error' && !message.parts.some((p) => p.type === 'error')" class="text-sm text-rose-300">
         回复生成失败，请重试。

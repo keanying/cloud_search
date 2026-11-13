@@ -43,7 +43,12 @@ defineExpose({ scrollToBottom })
   <div class="relative min-h-0 flex-1">
     <div ref="scroller" class="h-full overflow-y-auto" @scroll.passive="checkBottom">
       <div class="mx-auto flex max-w-[860px] flex-col gap-7 px-4 pt-4 pb-8 md:px-6" role="log" aria-label="对话消息">
-        <MessageItem v-for="m in messages" :key="m.message_id" :message="m" />
+        <MessageItem
+          v-for="(m, i) in messages"
+          :key="m.message_id"
+          :message="m"
+          :latest="i === messages.length - 1"
+        />
       </div>
     </div>
     <button

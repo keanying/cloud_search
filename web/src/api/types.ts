@@ -48,11 +48,19 @@ export interface ConversationList {
   next_cursor: string | null
 }
 
+export type Credibility = 'official' | 'academic' | 'media' | 'reference' | 'community' | 'aggregate' | 'unknown'
+
 export interface Citation {
   n: number
   source_revision_id: string
   url: string
   title: string | null
+  site_name?: string | null
+  publish_time_text?: string | null
+  credibility?: Credibility
+  credibility_label?: string
+  /** 该来源最有代表性的原文摘录（悬停预览） */
+  quote?: string
 }
 
 export interface TextPart {
@@ -116,6 +124,31 @@ export interface SourceBrief {
   url: string
   site_name: string | null
   retrieved_time: string | null
+  publish_time_text?: string | null
+  credibility?: Credibility
+  credibility_label?: string
+}
+
+/** 关键数字：数值已由程序核对出现在对应来源的证据中 */
+export interface HighlightItem {
+  label: string
+  value: string
+  unit?: string | null
+  source_n: number
+  url?: string | null
+}
+
+export interface HighlightsPart {
+  type: 'highlights'
+  part_id: string
+  items: HighlightItem[]
+}
+
+/** 接着问：基于本次结果的延伸问题 */
+export interface SuggestionsPart {
+  type: 'suggestions'
+  part_id: string
+  items: string[]
 }
 
 export interface SourcePart {
@@ -185,6 +218,8 @@ export type MessagePart =
   | ArtifactPart
   | ErrorPart
   | TakeoverPart
+  | HighlightsPart
+  | SuggestionsPart
 
 export interface MessageOut {
   message_id: string

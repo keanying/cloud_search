@@ -47,6 +47,11 @@ provide(ChatActionsKey, {
     hint.value = h ?? null
     composer.value?.focus()
   },
+  ask(t: string) {
+    if (stopSubmitting.value) return
+    text.value = t
+    void submit()
+  },
 })
 
 watch(

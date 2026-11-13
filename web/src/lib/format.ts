@@ -187,3 +187,21 @@ export function greeting(): string {
   if (h < 18) return '下午好'
   return '晚上好'
 }
+
+/** 来源可信度 → 色调（与卡片 pastel 色一致） */
+export function credibilityTone(c: string | null | undefined): 'mint' | 'sky' | 'lilac' | 'butter' | 'peach' | null {
+  switch (c) {
+    case 'official':
+      return 'mint'
+    case 'academic':
+      return 'lilac'
+    case 'media':
+      return 'sky'
+    case 'reference':
+      return 'butter'
+    case 'aggregate':
+      return 'peach'
+    default:
+      return null
+  }
+}
