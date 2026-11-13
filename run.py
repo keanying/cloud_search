@@ -40,6 +40,11 @@ PW_DIR = ROOT / ".playwright"
 MIN_PY, MAX_PY = (3, 12), (3, 13)
 MIN_NODE = 18
 
+# 所有子进程（迁移、服务、worker、pip）统一使用 UTF-8 模式：
+# 避免中文 Windows 上第三方库按本地编码（GBK）读取 UTF-8 文件出错
+os.environ.setdefault("PYTHONUTF8", "1")
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")

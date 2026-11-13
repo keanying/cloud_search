@@ -30,7 +30,8 @@ SCHEMA_MARKERS: list[tuple[str, callable]] = [
 
 
 def alembic_config() -> Config:
-    cfg = Config(str(BACKEND_ROOT / "alembic.ini"))
+    # 不读取 alembic.ini：避免 Windows 中文系统按本地编码（GBK）读取配置文件出错；迁移目录直接在代码中指定
+    cfg = Config()
     cfg.set_main_option("script_location", str(Path(BACKEND_ROOT / "migrations")))
     cfg.attributes["configure_logger"] = False
     return cfg
