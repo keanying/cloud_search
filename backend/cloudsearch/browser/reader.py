@@ -24,6 +24,7 @@ BLOCK_URL_PATTERNS = re.compile(r"captcha|antispider|wappass|verify|/sorry/|chal
                                 re.I)
 BLOCK_TEXT_PATTERNS = re.compile(
     r"验证码|安全验证|人机验证|访问验证|异常流量|请完成验证|访问受限|Access Denied|captcha|are you a robot|"
+    r"验证您是真人|验证你是真人|请解决以下难题|verify you are (a )?human|are you human|security check|"
     r"请先登录|登录后查看|403 Forbidden|Just a moment", re.I)
 
 
@@ -45,6 +46,15 @@ def looks_blocked(url: str, title: str, text: str) -> bool:
     short = len(text) < 800
     return bool(BLOCK_URL_PATTERNS.search(urlsplit(url).path + "?" + (urlsplit(url).query or ""))
                 and short) or bool(short and BLOCK_TEXT_PATTERNS.search(title + " " + text[:800]))
+
+
+async def _has_challenge_widget(s: CloudBrowserSession) -> bool:
+    from ..search.engines import CHALLENGE_JS
+
+    try:
+        return bool(await s.page.evaluate(CHALLENGE_JS))
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def extract_main_text(html: str, url: str) -> dict:
@@ -116,7 +126,7 @@ async def read_url(s: CloudBrowserSession, url: str, *, min_chars: int = 200, ac
             if resp is not None and resp.status >= 400:
                 status = "blocked" if resp.status in (401, 403, 429) else "failed"
                 return PageRead(status, url, final_url, title=title, reason=f"HTTP {resp.status}")
-            if looks_blocked(final_url, title, body_text):
+            if looks_blocked(final_url, title, body_text) or (len(body_text) < 1500 and await _has_challenge_widget(s)):
                 return PageRead("blocked", url, final_url, title=title, reason="遇到验证/登录/访问限制，未绕过")
             meta = extract_main_text(html, final_url)
             text = meta.get("text") or ""

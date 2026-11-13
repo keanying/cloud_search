@@ -13,7 +13,7 @@ from urllib.parse import urlsplit, urlunsplit
 from ..browser.pool import CloudBrowserSession
 from ..core.config import get_settings
 from ..contracts import SearchHit, SearchQuery
-from .engines import ENGINES, EngineBlocked, SearchEngine, is_network_error, looks_relevant
+from .engines import ENGINES, EngineBlocked, EngineUnavailable, SearchEngine, is_network_error, looks_relevant
 from .sources import build_sources
 
 _registry_cache: tuple[int, dict[str, SearchEngine]] | None = None
@@ -144,7 +144,7 @@ async def browser_search(s: CloudBrowserSession, queries: list[str | SearchQuery
                     log.warning("search engine %s blocked; cooling down", name)
                     continue
             except Exception as e:  # noqa: BLE001
-                if is_network_error(e):
+                if isinstance(e, EngineUnavailable) or is_network_error(e):
                     health.block(name, settings.search_unreachable_cooldown_s)
                     report.unreachable_engines.append(name)
                     log.warning("search engine %s unreachable (%s); cooling down", name, str(e)[:120])

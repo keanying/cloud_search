@@ -86,6 +86,31 @@ def looks_relevant(query: str, hits: list[SearchHit]) -> bool:
     return sum(1 for h in top if covered(h)) >= need
 
 
+# 人机验证 / 风控页的通用特征（文字与页面元素）。新的验证页措辞补充到这里即可。
+CHALLENGE_TEXT = re.compile(
+    r"安全验证|验证码|异常访问|人机验证|请输入验证码|验证您是真人|验证你是真人|确认您是真人|请解决以下难题|"
+    r"完成验证后继续|访问过于频繁|captcha|unusual traffic|verify you are (a )?human|are you a robot|"
+    r"are you human|security check|one more step|just a moment|bots use", re.I)
+CHALLENGE_JS = r"""() => !!document.querySelector(
+  'iframe[src*="challenges.cloudflare.com"], iframe[src*="recaptcha"], iframe[src*="hcaptcha"], ' +
+  'iframe[title*="challenge" i], iframe[title*="验证"], .cf-turnstile, #challenge-form, #cf-challenge-running, ' +
+  '.g-recaptcha, .h-captcha, [id*="captcha" i], [class*="captcha" i]')"""
+
+
+async def page_is_challenge(s: CloudBrowserSession, url_patterns: str = r"captcha|challenge|/sorry/") -> bool:
+    """当前页面是否为人机验证/风控页。"""
+    if re.search(url_patterns, s.page.url, re.I):
+        return True
+    try:
+        if await s.page.evaluate(CHALLENGE_JS):
+            return True
+        text = await s.page.evaluate("() => (document.body ? document.body.innerText : '').slice(0, 1500)")
+        title = await s.page.title()
+    except Exception:  # noqa: BLE001
+        return True
+    return bool(CHALLENGE_TEXT.search(title + " " + text))
+
+
 class SearchEngine:
     name = "base"
     host = ""
@@ -96,17 +121,13 @@ class SearchEngine:
         raise NotImplementedError
 
     async def _blocked(self, s: CloudBrowserSession, patterns: str) -> bool:
-        url = s.page.url
-        if re.search(patterns, url, re.I):
-            return True
         try:
             html_len = await s.page.evaluate("() => document.documentElement.outerHTML.length")
-            text = await s.page.evaluate("() => (document.body ? document.body.innerText : '').slice(0, 600)")
         except Exception:  # noqa: BLE001
             return True
         if html_len < 1000:
             return True
-        return bool(re.search(r"安全验证|验证码|异常访问|captcha|unusual traffic|请输入验证码|人机验证", text, re.I))
+        return await page_is_challenge(s, patterns)
 
     def _hits(self, query: str, rows: list[dict], n: int) -> list[SearchHit]:
         hits: list[SearchHit] = []
@@ -160,9 +181,10 @@ class BingEngine(SearchEngine):
         except Exception:  # noqa: BLE001
             pass
         await s.capture_frame(force=True)
-        if await self._blocked(s, r"/captcha|challenge"):
-            raise EngineBlocked("bing")
         rows = await s.page.evaluate(self.JS)
+        # 有结果时只检查网址（结果页里可能出现“验证码”等字样）；没有结果时再检查是否为验证页
+        if re.search(r"/captcha|challenge", s.page.url, re.I) or (not rows and await self._blocked(s, r"/captcha|challenge")):
+            raise EngineBlocked("bing")
         for r in rows:
             if r.get("url"):
                 r["url"] = decode_bing_url(r["url"])
@@ -269,7 +291,7 @@ class DuckDuckGoEngine(SearchEngine):
         return {url: a && a.getAttribute('href'), title: a && a.textContent, snippet: sn && sn.textContent};
       })"""
     BLOCK_URL = r"home-error|/418|anomaly|challenge|captcha"
-    BLOCK_TEXT = re.compile(r"bots use DuckDuckGo too|select all squares|anomaly|unusual traffic|captcha", re.I)
+    BLOCK_TEXT = CHALLENGE_TEXT
 
     async def _is_blocked(self, s: CloudBrowserSession) -> bool:
         if re.search(self.BLOCK_URL, s.page.url, re.I):
@@ -279,7 +301,7 @@ class DuckDuckGoEngine(SearchEngine):
             has_modal = await s.page.evaluate("() => !!document.querySelector('.anomaly-modal__modal, #challenge-form')")
         except Exception:  # noqa: BLE001
             return True
-        return has_modal or bool(self.BLOCK_TEXT.search(text))
+        return has_modal or bool(self.BLOCK_TEXT.search(text)) or await page_is_challenge(s, self.BLOCK_URL)
 
     def _rows(self, rows: list[dict]) -> list[dict]:
         out = []
@@ -307,6 +329,10 @@ class DuckDuckGoEngine(SearchEngine):
             await s.goto(ddg_search_url(query, lang=lang, recency=recency, html=True),
                          activity=f"DuckDuckGo 搜索：{query}", check=False)
             await s.capture_frame(force=True)
+            text = await s.page.evaluate("() => (document.body ? document.body.innerText : '').slice(0, 600)")
+            if re.search(r"If this persists, please email us|anonymized error code", text, re.I):
+                # 直接拒绝访问（非验证码，人工也无法处理）：按“不可达”处理，冷却后再试
+                raise EngineUnavailable("duckduckgo 拒绝了本网络的访问")
             if await self._is_blocked(s):
                 raise EngineBlocked("duckduckgo")
             rows = self._rows(await s.page.evaluate(self.JS_HTML))

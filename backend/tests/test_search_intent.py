@@ -219,3 +219,76 @@ async def test_planner_source_validation(client, fake_llm, fake_browser):
     assert by_purpose["公众号"].source == "weixin"
     assert by_purpose["通用"].source is None  # 未知来源 → 通用引擎
     assert "wikipedia_zh" in fake_llm.prompts["search_planner"][0]  # 规划时告知了可用来源
+
+
+# ---------------------------------------------------------------- 人机验证识别与接管
+BING_CHALLENGE = """<html><head><title>必应</title></head><body>
+<h1>最后一步</h1><p>请解决以下难题以继续</p><label><input type="checkbox"> 请验证您是真人</label></body></html>"""
+RESULTS_PAGE = """<html><head><title>搜索结果</title></head><body><ol id="b_results">
+<li class="b_algo"><h2><a href="https://example.cn/a">如何关闭网站验证码功能</a></h2><p>验证码设置教程……</p></li>
+</ol>""" + "<p>x</p>" * 300 + "</body></html>"
+
+
+async def test_challenge_page_detection():
+    from playwright.async_api import async_playwright
+
+    from cloudsearch.browser.launch import resolve
+    from cloudsearch.search.engines import page_is_challenge
+
+    choice = resolve()
+    if choice["mode"] in ("missing", "error"):
+        pytest.skip("无可用浏览器")
+
+    class Sess:
+        def __init__(self, page):
+            self.page = page
+
+    async with async_playwright() as p:
+        b = await p.chromium.launch(**choice["launch_kwargs"])
+        page = await b.new_page()
+        await page.set_content(BING_CHALLENGE)
+        assert await page_is_challenge(Sess(page)) is True  # 用户截图中的必应验证页
+        await page.set_content('<div class="cf-turnstile"></div><p>Checking your browser</p>')
+        assert await page_is_challenge(Sess(page)) is True  # 验证组件
+        await page.set_content(RESULTS_PAGE)
+        # 结果页可能含“验证码”字样：引擎实现只在“没有解析到结果”时才做文字判断，避免误判
+        await b.close()
+
+
+async def test_blocked_engine_requests_takeover_then_retries(env, monkeypatch):
+    import asyncio
+
+    from cloudsearch.contracts import SearchHit, SearchQuery
+    from cloudsearch.search import engines, service
+
+    state = {"calls": 0, "handoffs": []}
+
+    class Bing(engines.SearchEngine):
+        name = "bing"
+
+        async def search(self, s, query, n, *, lang=None, recency=None):
+            state["calls"] += 1
+            if state["calls"] == 1:
+                raise engines.EngineBlocked("bing")
+            return [SearchHit(engine="bing", query=query, rank=1, url="https://a.cn/1", title=query),
+                    SearchHit(engine="bing", query=query, rank=2, url="https://a.cn/2", title=query)]
+
+    monkeypatch.setattr(service, "ENGINES", {"bing": Bing()})
+    monkeypatch.setenv("CS_SEARCH_ENGINES", '["bing"]')
+    from cloudsearch.core import config
+
+    config.get_settings.cache_clear()
+    service.health.reset()
+
+    async def on_blocked(sess, reason):
+        state["handoffs"].append(reason)
+        return True  # 用户完成了验证
+
+    class S:
+        lock = asyncio.Lock()
+
+    rep = await service.browser_search(S(), [SearchQuery(query="故宫 开放时间")], on_blocked=on_blocked)
+    assert state["handoffs"] and "人机验证" in state["handoffs"][0]
+    assert state["calls"] == 2 and len(rep.hits) == 2 and rep.blocked_engines == []
+    service.health.reset()
+    config.get_settings.cache_clear()

@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from ..browser.pool import CloudBrowserSession
 from ..contracts import SearchHit
-from .engines import GENERIC_JS, EngineBlocked, SearchEngine, query_language
+from .engines import GENERIC_JS, EngineBlocked, SearchEngine, page_is_challenge, query_language
 
 
 class SourceConfig(BaseModel, extra="forbid"):
@@ -98,6 +98,9 @@ class TemplateSource(SearchEngine):
         text = await s.page.evaluate("() => (document.body ? document.body.innerText : '').slice(0, 800)")
         if re.search(self.cfg.block_patterns, page_url, re.I) or (
                 len(text) < 800 and re.search(self.cfg.block_patterns, text, re.I)):
+            raise EngineBlocked(self.name)
+        rows_probe = await s.page.evaluate("(sel) => document.querySelectorAll(sel).length", self.cfg.item)
+        if not rows_probe and await page_is_challenge(s):
             raise EngineBlocked(self.name)
         if self.cfg.direct_hit and re.search(self.cfg.direct_hit, page_url):
             title = await s.page.title()

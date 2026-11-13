@@ -12,6 +12,7 @@
   python run.py --no-build      跳过前端打包
   python run.py --no-browser    不自动打开浏览器
   python run.py --rebuild       强制重新安装依赖并重新打包前端
+  python run.py --check-search  诊断各搜索引擎在本机网络下是否可用
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import signal
 import socket
@@ -229,6 +231,34 @@ def ensure_config() -> None:
     if not cfg.exists():
         shutil.copy(ROOT / "config.example.yaml", cfg)
         step("已根据 config.example.yaml 生成 config.yaml（数据库、密钥、大模型等请在此文件中维护）")
+        return
+    upgrade_config(cfg)
+
+
+# 早期模板中的默认值 → 新默认值。只替换“原样未改动”的旧默认行，并先备份。
+_CONFIG_UPGRADES = [
+    (re.compile(r"^(?P<indent>[ \t]+)engines:[ \t]*\[[ \t]*bing[ \t]*,[ \t]*baidu[ \t]*,[ \t]*sogou[ \t]*\][^\n]*$", re.M),
+     "{indent}engines: [duckduckgo, google, bing, baidu, sogou]  # 已自动升级（原为 [bing, baidu, sogou]）",
+     "search.engines 从旧默认 [bing, baidu, sogou] 升级为 [duckduckgo, google, bing, baidu, sogou]"),
+]
+
+
+def upgrade_config(cfg: Path) -> None:
+    text = cfg.read_text(encoding="utf-8")
+    new, notes = text, []
+    for pattern, repl, note in _CONFIG_UPGRADES:
+        new, n = pattern.subn(lambda m, r=repl: r.format(indent=m.group("indent")), new)
+        if n:
+            notes.append(note)
+    if not notes:
+        return
+    backup = cfg.with_name(f"config.yaml.bak-{time.strftime('%Y%m%d%H%M%S')}")
+    shutil.copy(cfg, backup)
+    cfg.write_text(new, encoding="utf-8")
+    step("已升级 config.yaml 中未改动过的旧默认值")
+    for n in notes:
+        info(n)
+    info(f"原文件已备份为 {backup.name}；如需保留旧设置，把对应行改回即可")
 
 
 def ensure_venv(force: bool, opts: dict[str, list[str]]) -> None:
@@ -447,6 +477,7 @@ def main() -> None:
     ap.add_argument("--no-build", action="store_true", help="跳过前端打包")
     ap.add_argument("--rebuild", action="store_true", help="强制重新安装依赖并打包")
     ap.add_argument("--no-browser", action="store_true", help="不自动打开浏览器")
+    ap.add_argument("--check-search", action="store_true", help="诊断各搜索引擎在本机网络下是否可用")
     ap.add_argument("--host")
     ap.add_argument("--port", type=int)
     args = ap.parse_args()
@@ -464,6 +495,9 @@ def main() -> None:
         fail("尚未安装环境，请去掉 --no-install 运行一次")
     elif args.dev:
         pm, _ = node_tools()
+    if args.check_search:
+        step("搜索引擎诊断")
+        sys.exit(subprocess.call([str(VENV_PY), "-m", "cloudsearch.search.diagnose"], cwd=str(ROOT)))
     cfg = app_config()
     info(f"数据库：{cfg['db']}；执行器：{'内嵌' if cfg['embedded'] else '独立进程'}")
     migrate(cfg)

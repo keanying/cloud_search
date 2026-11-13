@@ -127,7 +127,7 @@ const openFaq = ref<number | null>(0)
       <div class="mx-auto mt-20 grid max-w-[1040px] gap-8 md:grid-cols-[minmax(0,360px)_1fr] md:gap-14">
         <div v-reveal>
           <span class="lp-eyebrow"><Sparkles class="h-3.5 w-3.5" /> 认识云搜浏览器</span>
-          <h2 id="intro-title" class="lp-h2 mt-4 !text-[clamp(26px,3.2vw,36px)]">把查资料这件事，交给云端完成</h2>
+          <h2 id="intro-title" class="lp-h2 mt-4 !text-[clamp(26px,3.2vw,36px)]">把查资料这件事，<br />交给云端完成</h2>
         </div>
         <div v-reveal="80" class="space-y-6 text-[17px] leading-8 md:text-lg md:leading-9">
           <p class="text-slate-400">
