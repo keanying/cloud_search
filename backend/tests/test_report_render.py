@@ -70,3 +70,15 @@ def test_svg_chart_types():
                                        "series": [{"name": "s1", "values": [1, 2.5, None]},
                                                   {"name": "s2", "values": [3, 1, 2]}]})
         assert svg.startswith("<svg") and svg.endswith("</svg>")
+
+
+def test_html_stat_tiles_toc_and_credibility():
+    from cloudsearch.orchestrator.report_render import render_html
+
+    md = ("> **摘要**　x\n\n**关键数字**\n\n| 指标 | 数值 | 来源 |\n|---|---|---|\n| 观众 | **1,700** 万人次 | [1] |\n\n"
+          "## 一\na[1]\n## 二\nb\n## 三\nc\n")
+    h = render_html(title="T", markdown=md, meta_line="m", sources=[
+        {"n": 1, "url": "https://a.cn", "title": "A", "credibility": "official", "credibility_label": "官方"}])
+    assert '<div class="stats">' in h and '<span class="u">万人次</span>' in h and "<table>" not in h
+    assert h.index('<nav class="toc">') > h.index('<div class="stats">')
+    assert '<h2 id="sec-3">' in h and 'class="cred official">官方' in h

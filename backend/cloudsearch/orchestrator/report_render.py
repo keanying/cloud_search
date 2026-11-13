@@ -166,6 +166,20 @@ sup.cite a { color: #6366f1; text-decoration: none; font-size: 11px; margin-left
 .refs { margin-top: 36px; border-top: 1px solid #e2e8f0; padding-top: 12px; font-size: 13px; color: #475569; }
 .refs li { margin: 6px 0; word-break: break-all; }
 .refs a { color: #4f46e5; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin: 18px 0 22px; }
+.stat { border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 16px; background: #fbfcfe; break-inside: avoid; }
+.stat .v { font-size: 26px; font-weight: 700; color: #0f172a; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.stat .u { font-size: 13px; color: #64748b; margin-left: 3px; font-weight: 500; }
+.stat .l { font-size: 13px; color: #475569; margin-top: 4px; }
+.stat sup.cite a { font-size: 11px; }
+.toc { margin: 4px 0 26px; padding: 12px 16px; border: 1px dashed #cbd5e1; border-radius: 10px; font-size: 14px; }
+.toc b { display: block; color: #64748b; font-size: 12px; letter-spacing: .08em; margin-bottom: 4px; }
+.toc ol { margin: 0; padding-left: 1.3em; columns: 2; column-gap: 28px; }
+.toc a { color: #334155; text-decoration: none; }
+.cred { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 999px; background: #eef2ff;
+        color: #4338ca; margin-left: 4px; }
+.cred.official, .cred.academic { background: #ecfdf5; color: #047857; }
+.cred.aggregate, .cred.community { background: #f8fafc; color: #64748b; }
 .footer { margin-top: 24px; color: #94a3b8; font-size: 12px; }
 @media print { body { background: #fff; } .doc { box-shadow: none; margin: 0; padding: 0; max-width: none; } }
 """ % {"font": FONT}
@@ -186,15 +200,48 @@ def _md() -> MarkdownIt:
     return md
 
 
+_STATS = re.compile(r"<p><strong>关键数字</strong></p>\s*<table>.*?<tbody>(.*?)</tbody>\s*</table>", re.S)
+_STAT_ROW = re.compile(r"<tr>\s*<td>(.*?)</td>\s*<td><strong>(.*?)</strong>(.*?)</td>\s*<td>(.*?)</td>\s*</tr>", re.S)
+_H2 = re.compile(r"<h2>(.*?)</h2>")
+
+
+def _stat_tiles(html: str) -> str:
+    """把“关键数字”表格渲染成数字卡片。"""
+    def tiles(m: re.Match) -> str:
+        cards = "".join(f'<div class="stat"><div class="v">{v}<span class="u">{u.strip()}</span></div>'
+                        f'<div class="l">{lab} {src}</div></div>' for lab, v, u, src in _STAT_ROW.findall(m.group(1)))
+        return f'<div class="stats">{cards}</div>' if cards else m.group(0)
+    return _STATS.sub(tiles, html)
+
+
+def _toc(html: str) -> str:
+    """二级标题 ≥3 个时生成目录，并给标题加锚点。"""
+    heads = _H2.findall(html)
+    if len(heads) < 3:
+        return html
+    counter = iter(range(1, len(heads) + 1))
+    html = _H2.sub(lambda m: f'<h2 id="sec-{next(counter)}">{m.group(1)}</h2>', html)
+    items = "".join(f'<li><a href="#sec-{i}">{re.sub(r"<[^>]+>", "", h)}</a></li>' for i, h in enumerate(heads, 1))
+    at = html.find("<h2")  # 放在摘要/关键数字之后、正文第一节之前
+    return html[:at] + f'<nav class="toc"><b>目录</b><ol>{items}</ol></nav>' + html[at:]
+
+
+def _cred_badge(src: dict) -> str:
+    lab = src.get("credibility_label")
+    if not lab:
+        return ""
+    return f' <span class="cred {_html.escape(src.get("credibility") or "")}">{_html.escape(lab)}</span>'
+
+
 def render_html(*, title: str, markdown: str, sources: list[dict], meta_line: str) -> str:
     body_md = re.sub(r"^#\s+.*\n", "", markdown, count=1) if markdown.lstrip().startswith("# ") else markdown
-    body = _md().render(body_md)
+    body = _toc(_stat_tiles(_md().render(body_md)))
     body = _CITE.sub(lambda m: f'<sup class="cite"><a href="#ref-{m.group(1)}">[{m.group(1)}]</a></sup>', body)
     refs = ""
     if sources:
         items = "".join(
             f'<li id="ref-{s["n"]}">[{s["n"]}] {_html.escape(s.get("title") or s["url"])}'
-            f'{(" · " + _html.escape(s["site_name"])) if s.get("site_name") else ""}'
+            f'{(" · " + _html.escape(s["site_name"])) if s.get("site_name") else ""}{_cred_badge(s)}'
             f'{(" · 发布 " + _html.escape(s["publish_time_text"])) if s.get("publish_time_text") else ""}<br>'
             f'<a href="{_html.escape(s["url"])}">{_html.escape(s["url"])}</a>'
             f' <span>（读取于 {_html.escape(str(s.get("retrieved_time", ""))[:16].replace("T", " "))}）</span></li>'
