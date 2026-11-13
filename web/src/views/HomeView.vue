@@ -6,15 +6,13 @@ import type { ArtifactOut, ModeSelection } from '@/api/types'
 import { api } from '@/api/client'
 import ChatComposer from '@/components/chat/ChatComposer.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
-import { artifactKindLabel, greeting, relativeTime } from '@/lib/format'
-import { useAuthStore } from '@/stores/auth'
+import { artifactKindLabel, relativeTime } from '@/lib/format'
 import { useChatStore } from '@/stores/chat'
 import { useConversationsStore } from '@/stores/conversations'
 import { usePanelStore } from '@/stores/panel'
 import { useToastStore } from '@/stores/toast'
 
 const router = useRouter()
-const auth = useAuthStore()
 const chat = useChatStore()
 const convs = useConversationsStore()
 const panel = usePanelStore()
@@ -27,7 +25,6 @@ const composer = ref<InstanceType<typeof ChatComposer> | null>(null)
 const artifacts = ref<ArtifactOut[]>([])
 const artifactsLoaded = ref(false)
 
-const welcome = computed(() => (auth.user?.display_name ? `${greeting()}，${auth.user.display_name}` : '你好，今天想探索什么？'))
 
 /** 快捷建议只填入输入框并切换模式，不会自动发送 */
 const suggestions: { label: string; icon: typeof Search; mode: ModeSelection; text: string }[] = [
@@ -81,7 +78,7 @@ const recent = computed(() => convs.items.filter((c) => c.conversation_status ==
 <template>
   <div class="h-full overflow-y-auto">
     <div class="mx-auto flex min-h-full max-w-5xl flex-col items-center px-4 pt-[12vh] pb-10">
-      <h1 class="text-center text-3xl font-semibold tracking-wide text-white md:text-4xl">{{ welcome }}</h1>
+      <h1 class="text-center text-3xl font-semibold tracking-wide text-white md:text-4xl">你好，今天想探索什么？</h1>
       <p class="mt-3 text-center text-sm text-slate-400 md:text-base">从一个问题开始，让 AI 帮你搜索、整理数据、生成报告</p>
 
       <div class="mt-8 w-full max-w-[760px]">
