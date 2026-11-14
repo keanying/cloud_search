@@ -107,7 +107,16 @@ export interface ProgressPart {
   task_status: TaskStatus
   stage: string | null
   stage_label: string | null
-  stages: { key: string; label: string; status: StageStatus }[]
+  stages: { key: string; label: string; status: StageStatus; elapsed_ms?: number | null }[]
+  /** 耗时与消耗：开始/结束时间（毫秒时间戳）、总耗时、模型调用次数、费用（分） */
+  metrics?: {
+    started_ms: number | null
+    finished_ms: number | null
+    elapsed_ms: number | null
+    llm_requests: number
+    spent_minor_amt: number
+    cost_unknown_qty: number
+  }
   counters: {
     queries?: number
     candidates?: number
@@ -145,6 +154,18 @@ export interface HighlightsPart {
   type: 'highlights'
   part_id: string
   items: HighlightItem[]
+}
+
+/** 撰写中的实时草稿（流式显示，完成后由最终成果替代） */
+export interface DraftPart {
+  type: 'draft'
+  part_id: string
+  task_id: string
+  kind: 'answer' | 'report'
+  title: string
+  text: string
+  chars: number
+  status: 'writing'
 }
 
 /** 接着问：基于本次结果的延伸问题 */
@@ -223,6 +244,7 @@ export type MessagePart =
   | TakeoverPart
   | HighlightsPart
   | SuggestionsPart
+  | DraftPart
   | FilePart
 
 export interface MessageOut {
@@ -631,6 +653,10 @@ export interface AdminTask {
   cost_unknown_qty: number
   created_time: string
   updated_time: string
+  /** 总耗时（毫秒，进行中的任务为至今） */
+  elapsed_ms?: number | null
+  /** 各阶段累计耗时（毫秒） */
+  stage_ms?: Record<string, number>
 }
 
 export interface AdminUser {

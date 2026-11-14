@@ -12,6 +12,11 @@ import { artifactKindLabel, formatBytes, formatTime, hostOf, modeLabel, relative
 import { useToastStore } from '@/stores/toast'
 
 /** 任务详情抽屉：概况 / 步骤 / 来源 / 成果 */
+const STAGE_NAME: Record<string, string> = {
+  files: '读取文件', plan: '规划搜索', search: '浏览器搜索', read: '读取网页', extract: '提取信息',
+  coverage: '评估覆盖/补查', verify: '核验来源', build: '整理数据', analyze: '计算分析', write: '撰写成果',
+}
+
 const props = defineProps<{ taskId: string | null }>()
 const emit = defineEmits<{ close: [] }>()
 const toast = useToastStore()
@@ -98,7 +103,12 @@ const LIMIT_LABEL: Record<string, string> = {
           <div class="mb-1 font-semibold text-white">失败原因</div>
           <code class="ac-code">{{ data.error_desc }}</code>
         </div>
-        <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-5">
+          <div class="rounded-lg border border-[var(--cs-line)] px-3 py-2.5">
+            <div class="ac-caps">总耗时</div>
+            <div class="mt-1 text-lg font-bold text-white tabular-nums">{{ duration(t.elapsed_ms) }}</div>
+            <div class="text-[11px] text-slate-500">{{ ['queued', 'running', 'pausing', 'stopping'].includes(t.task_status) ? '进行中' : '开始到结束' }}</div>
+          </div>
           <div class="rounded-lg border border-[var(--cs-line)] px-3 py-2.5">
             <div class="ac-caps">模型调用</div>
             <div class="mt-1 text-lg font-bold text-white tabular-nums">{{ compact(data.llm.requests) }}</div>
@@ -117,6 +127,13 @@ const LIMIT_LABEL: Record<string, string> = {
             <div class="ac-caps">来源</div>
             <div class="mt-1 text-lg font-bold text-white tabular-nums">{{ data.sources.by_status.captured ?? 0 }}<span class="text-sm text-slate-400"> / {{ srcTotal }}</span></div>
             <div class="text-[11px] text-slate-500">已读取 / 尝试</div>
+          </div>
+        </div>
+
+        <div v-if="t.stage_ms && Object.keys(t.stage_ms).length">
+          <div class="ac-caps mb-2">各阶段耗时</div>
+          <div class="flex flex-wrap gap-1.5">
+            <span v-for="(ms, k) in t.stage_ms" :key="k" class="lim">{{ STAGE_NAME[k] ?? k }} {{ duration(ms) }}</span>
           </div>
         </div>
 

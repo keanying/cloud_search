@@ -9,7 +9,7 @@ import StatusPill from '@/components/admin/StatusPill.vue'
 import TableToolbar from '@/components/admin/TableToolbar.vue'
 import TaskDrawer from '@/components/admin/TaskDrawer.vue'
 import DataTable, { type Column } from '@/components/common/DataTable.vue'
-import { TASK_MODE_FILTER, compact, hueTone, money, taskPastel } from '@/lib/adminFormat'
+import { TASK_MODE_FILTER, compact, duration, hueTone, money, taskPastel } from '@/lib/adminFormat'
 import { formatTime, modeLabel, relativeTime, taskStatusLabel } from '@/lib/format'
 import { useColumnPrefs } from '@/lib/useColumnPrefs'
 import { useServerTable } from '@/lib/useServerTable'
@@ -37,6 +37,7 @@ const all: Column[] = [
   { key: 'task_status', title: '状态', width: 120 },
   { key: 'mode', title: '模式', width: 100 },
   { key: 'user', title: '发起人', width: 150 },
+  { key: 'elapsed_ms', title: '耗时', width: 110, align: 'right' },
   { key: 'llm_request_qty', title: '模型调用', width: 96, align: 'right' },
   { key: 'spent_minor_amt', title: '费用', width: 100, align: 'right' },
   { key: 'created_time', title: '创建时间', width: 160 },
@@ -101,6 +102,7 @@ watch(
           <span class="truncate text-slate-200">{{ row.display_name || row.username || '—' }}</span>
         </span>
       </template>
+      <template #cell-elapsed_ms="{ row }"><span class="tabular-nums text-slate-300">{{ duration(row.elapsed_ms) }}</span></template>
       <template #cell-llm_request_qty="{ row }"><span class="tabular-nums">{{ compact(row.llm_request_qty) }}</span></template>
       <template #cell-spent_minor_amt="{ row }">
         <span class="tabular-nums">{{ money(row.spent_minor_amt, 'CNY') }}</span>

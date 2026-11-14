@@ -4,6 +4,7 @@ import type {
   ClarificationPart as ClarificationPartT,
   ErrorPart as ErrorPartT,
   HighlightsPart as HighlightsPartT,
+  DraftPart as DraftPartT,
   SuggestionsPart as SuggestionsPartT,
   MessagePart,
   PlanSummaryPart as PlanSummaryPartT,
@@ -21,6 +22,7 @@ import ArtifactPart from './ArtifactPart.vue'
 import ErrorPart from './ErrorPart.vue'
 import TakeoverPart from './TakeoverPart.vue'
 import HighlightsPart from './HighlightsPart.vue'
+import DraftPart from './DraftPart.vue'
 import SuggestionsPart from './SuggestionsPart.vue'
 
 defineProps<{ part: MessagePart; taskId?: string | null; streaming?: boolean }>()
@@ -37,4 +39,5 @@ defineProps<{ part: MessagePart; taskId?: string | null; streaming?: boolean }>(
   <TakeoverPart v-else-if="part.type === 'takeover'" :part="part as TakeoverPartT" />
   <HighlightsPart v-else-if="part.type === 'highlights'" :part="part as HighlightsPartT" :task-id="taskId" />
   <SuggestionsPart v-else-if="part.type === 'suggestions'" :part="part as SuggestionsPartT" />
+  <DraftPart v-else-if="part.type === 'draft'" :part="part as DraftPartT" />
 </template>

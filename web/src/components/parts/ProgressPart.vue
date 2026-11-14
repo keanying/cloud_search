@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { Check, Globe, Library, Loader2, MoreHorizontal, Search } from 'lucide-vue-next'
 import type { ProgressPart, TaskOut } from '@/api/types'
 import { api } from '@/api/client'
-import { ACTIVE_STATUSES, TERMINAL_STATUSES, taskStatusEmoji, taskStatusLabel, taskStatusTone } from '@/lib/format'
+import { ACTIVE_STATUSES, TERMINAL_STATUSES, formatDuration, taskStatusEmoji, taskStatusLabel, taskStatusTone } from '@/lib/format'
+import { useNow } from '@/lib/useNow'
 import { useChatStore } from '@/stores/chat'
 import { usePanelStore } from '@/stores/panel'
 import { useToastStore } from '@/stores/toast'
@@ -34,6 +35,28 @@ const counters = computed(() => {
   if (c.sources_failed) out.push({ label: '读取受限/失败', value: c.sources_failed })
   if (c.evidence != null) out.push({ label: '证据', value: c.evidence })
   return out
+})
+
+// 耗时：进行中时每秒刷新（总用时按开始时间计算；进行中阶段在最近一次数据基础上累加）
+const running = computed(() => !TERMINAL_STATUSES.has(status.value) && status.value !== 'draft')
+const now = useNow(running)
+const receivedAt = ref(Date.now())
+watch(() => props.part, () => (receivedAt.value = Date.now()), { deep: true })
+const liveExtra = computed(() => (running.value ? Math.max(0, now.value - receivedAt.value) : 0))
+const elapsed = computed(() => {
+  const m = props.part.metrics
+  if (!m?.started_ms) return null
+  return running.value ? Math.max(m.elapsed_ms ?? 0, now.value - m.started_ms) : m.elapsed_ms
+})
+const metricsLine = computed(() => {
+  const m = props.part.metrics
+  if (!m) return ''
+  const bits: string[] = []
+  if (elapsed.value != null) bits.push(`${running.value ? '已用时' : '总用时'} ${formatDuration(elapsed.value)}`)
+  if (m.llm_requests) bits.push(`模型调用 ${m.llm_requests} 次`)
+  if (m.spent_minor_amt) bits.push(`费用 ¥${(m.spent_minor_amt / 100).toFixed(2)}`)
+  if (m.cost_unknown_qty) bits.push(`${m.cost_unknown_qty} 次待核算`)
+  return bits.join(' · ')
 })
 
 const canPause = computed(() => status.value === 'queued' || status.value === 'running')
@@ -77,6 +100,7 @@ async function run(fn: () => Promise<TaskOut>, okText: string) {
       <div class="min-w-0 flex-1">
         <div class="truncate text-[15px] font-bold tracking-tight text-white">{{ task?.title || part.stage_label || '任务进度' }}</div>
         <div v-if="part.stage_label && active" class="truncate text-xs accent-ink">{{ part.stage_label }}</div>
+        <div v-if="metricsLine" class="truncate text-xs text-slate-400 tabular-nums">{{ metricsLine }}</div>
       </div>
       <StatusBadge :tone="taskStatusTone(status)" :emoji="taskStatusEmoji(status, task?.status_reason)">
         {{ taskStatusLabel(status, task?.status_reason) }}
@@ -84,7 +108,7 @@ async function run(fn: () => Promise<TaskOut>, okText: string) {
     </div>
 
     <div class="mt-4 grid gap-4" :class="part.stages?.length && counters.length ? 'sm:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]' : ''">
-      <StageTimeline v-if="part.stages?.length" :stages="part.stages" dense />
+      <StageTimeline v-if="part.stages?.length" :stages="part.stages" dense :live-extra-ms="liveExtra" />
       <StatTiles v-if="counters.length" :items="counters" class="content-start !grid-cols-2" />
     </div>
 

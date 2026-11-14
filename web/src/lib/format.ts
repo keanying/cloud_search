@@ -206,3 +206,13 @@ export function credibilityTone(c: string | null | undefined): 'mint' | 'sky' | 
       return null
   }
 }
+
+/** 耗时：8.2 秒 / 1 分 05 秒 / 1 小时 02 分 */
+export function formatDuration(ms: number | null | undefined): string {
+  if (ms == null || ms < 0) return '—'
+  const sec = ms / 1000
+  if (sec < 60) return `${sec < 10 ? sec.toFixed(1) : Math.round(sec)} 秒`
+  const m = Math.floor(sec / 60)
+  if (m < 60) return `${m} 分 ${String(Math.round(sec % 60)).padStart(2, '0')} 秒`
+  return `${Math.floor(m / 60)} 小时 ${String(m % 60).padStart(2, '0')} 分`
+}
