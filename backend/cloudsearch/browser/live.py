@@ -103,6 +103,8 @@ class LiveChannel:
             await cdp.send("Input.dispatchKeyEvent", p)
         elif t == "text" and ev.get("text"):
             await cdp.send("Input.insertText", {"text": str(ev["text"])[:2000]})
+        elif t == "reload":  # 验证组件没加载出来时，由接手的用户刷新页面
+            await cdp.send("Page.reload", {"ignoreCache": True})
 
     async def close(self) -> None:
         for q in list(self.subscribers):

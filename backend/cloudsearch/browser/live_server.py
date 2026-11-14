@@ -25,7 +25,7 @@ from . import live
 
 log = logging.getLogger(__name__)
 
-INPUT_TYPES = {"mouse", "key", "text"}
+INPUT_TYPES = {"mouse", "key", "text", "reload"}
 
 
 def internal_signature(browser_session_id: str, user_id: str) -> str:

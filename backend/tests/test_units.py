@@ -98,3 +98,29 @@ def test_block_detection():
     assert looks_blocked("https://x.com/captcha?r=1", "验证", "请完成验证")
     assert looks_blocked("https://x.com/a", "百度安全验证", "网络不给力，请稍后重试")
     assert not looks_blocked("https://x.com/a", "正常文章", "这是一篇很长的文章。" * 200)
+
+
+async def test_ssrf_guard_proxy_and_fake_ip(env, monkeypatch):
+    """代理软件 fake-ip（198.18/15）不算内网；配置代理时本机 DNS 解析失败不拦截（由代理远端解析）。"""
+    import socket
+
+    from cloudsearch.browser import guard
+    from cloudsearch.core.config import get_settings
+
+    assert guard._ip_allowed("198.18.0.7") and not guard._ip_allowed("10.0.0.1")
+
+    async def fail(*a, **k):
+        raise socket.gaierror("no dns")
+
+    import asyncio
+
+    monkeypatch.setattr(asyncio.get_running_loop(), "getaddrinfo", fail)
+    guard._cache.clear()
+    s = get_settings()
+    monkeypatch.setattr(s, "browser_proxy", None)
+    assert not await guard.host_allowed("www.gstatic.com")
+    guard._cache.clear()
+    monkeypatch.setattr(s, "browser_proxy", "http://127.0.0.1:7890")
+    assert await guard.host_allowed("www.gstatic.com")
+    assert not await guard.host_allowed("localhost")
+    guard._cache.clear()

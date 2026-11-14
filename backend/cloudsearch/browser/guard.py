@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import logging
 import socket
 import time
 from urllib.parse import urlsplit
@@ -18,6 +19,10 @@ _CACHE_TTL_S = 300
 _cache: dict[str, tuple[float, bool]] = {}
 
 BLOCKED_HOSTS = {"metadata.google.internal", "metadata", "localhost"}
+# 代理软件 TUN/fake-ip 模式（Clash 等）把所有域名解析到 198.18.0.0/15，真实连接由代理完成，不是内网地址
+FAKE_IP_NET = ipaddress.ip_network("198.18.0.0/15")
+log = logging.getLogger(__name__)
+_logged: set[str] = set()
 
 
 class UrlNotAllowed(Exception):
@@ -31,6 +36,8 @@ def _ip_allowed(ip: str) -> bool:
         return False
     if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:
         addr = addr.ipv4_mapped
+    if addr in FAKE_IP_NET:
+        return True
     return not (addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_multicast
                 or addr.is_reserved or addr.is_unspecified or str(addr) == "100.100.100.200")
 
@@ -45,17 +52,26 @@ async def host_allowed(host: str) -> bool:
     hit = _cache.get(host)
     if hit and hit[0] > now:
         return hit[1]
+    why = ""
     try:
         ipaddress.ip_address(host)
         ok = _ip_allowed(host)
+        why = "内网/保留地址"
     except ValueError:
         try:
             infos = await asyncio.get_running_loop().getaddrinfo(host, None, type=socket.SOCK_STREAM)
             ips = {i[4][0] for i in infos}
             ok = bool(ips) and all(_ip_allowed(ip) for ip in ips)
-        except OSError:
-            ok = False
+            why = f"解析到内网/保留地址 {', '.join(sorted(ips))[:80]}"
+        except OSError as e:
+            # 配置了代理时由代理在远端解析域名：本机 DNS 解析不到（如被污染、只走代理）不代表是内网地址
+            ok = bool(get_settings().browser_proxy)
+            why = f"本机无法解析域名（{type(e).__name__}），且未配置 browser.proxy"
     _cache[host] = (now + _CACHE_TTL_S, ok)
+    if not ok and host not in _logged:
+        _logged.add(host)
+        log.warning("出口防护拦截了对 %s 的访问：%s。如果这是正常网站（例如验证码组件所需资源），"
+                    "请检查网络/DNS 或在 config.yaml 中设置 browser.proxy", host, why)
     return ok
 
 
