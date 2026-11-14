@@ -28,7 +28,7 @@ from pathlib import Path
 
 from ..core.config import get_settings
 
-TEXT_EXT = {"txt", "md", "markdown", "json", "log", "xml", "yaml", "yml"}
+TEXT_EXT = {"txt", "md", "markdown", "json", "jsonl", "ndjson", "log", "xml", "yaml", "yml"}
 HTML_EXT = {"html", "htm"}
 TABLE_EXT = {"csv", "tsv", "xlsx", "xlsm"}
 PDF_EXT = {"pdf"}
@@ -132,6 +132,19 @@ def _docx(data: bytes) -> str:
     return "\n\n".join(out)
 
 
+def _table_doc(rows: list[list], title: str) -> tuple[str, bool]:
+    """表格：程序统计概览 + 前 1000 行明细。"""
+    from .profile import profile_records, table_rows_to_records
+
+    md, cut = _md_table(rows)
+    if not md:
+        return "", False
+    recs = table_rows_to_records(rows)
+    prof = profile_records(recs, name=title) if len(recs) >= 2 else ""
+    detail = f"# 明细（{title}{'，前 1000 行' if cut else ''}）\n\n{md}"
+    return (prof + "\n\n" + detail) if prof else detail, cut
+
+
 def _xlsx(data: bytes) -> tuple[str, list[str]]:
     from openpyxl import load_workbook
 
@@ -139,20 +152,33 @@ def _xlsx(data: bytes) -> tuple[str, list[str]]:
     out, notes = [], []
     for ws in wb.worksheets:
         rows = [list(r) for r in ws.iter_rows(values_only=True)]
-        md, cut = _md_table(rows)
+        md, cut = _table_doc(rows, f"工作表：{ws.title}")
         if not md:
             continue
-        out.append(f"## 工作表：{ws.title}\n\n{md}")
+        out.append(md)
         if cut:
-            notes.append(f"工作表「{ws.title}」超过 1000 行，只读取了前 1000 行")
+            notes.append(f"工作表「{ws.title}」超过 1000 行：统计覆盖全部行，明细只列出前 1000 行")
     return "\n\n".join(out), notes
 
 
 def _csv(data: bytes, delimiter: str) -> tuple[str, list[str]]:
     text = _decode(data)
     rows = list(csv.reader(io.StringIO(text), delimiter=delimiter))
-    md, cut = _md_table(rows)
-    return md, (["超过 1000 行，只读取了前 1000 行"] if cut else [])
+    md, cut = _table_doc(rows, "表格")
+    return md, (["超过 1000 行：统计覆盖全部行，明细只列出前 1000 行"] if cut else [])
+
+
+def _json_doc(text: str, name: str) -> str | None:
+    """JSON / JSONL 数据集：程序统计概览 + 全部记录（每条一行）。不是记录列表时返回 None。"""
+    from .profile import load_json_records, profile_records, records_section
+
+    loaded = load_json_records(text)
+    if loaded is None:
+        return None
+    records, where = loaded
+    if len(records) < 2:
+        return None
+    return profile_records(records, name=name, where=where) + "\n\n" + records_section(records)
 
 
 def _html(data: bytes) -> str:
@@ -162,7 +188,7 @@ def _html(data: bytes) -> str:
     return trafilatura.extract(text, output_format="markdown", include_tables=True) or ""
 
 
-def builtin_parse(data: bytes, ext: str) -> ParseResult:
+def builtin_parse(data: bytes, ext: str, name: str = "") -> ParseResult:
     notes: list[str] = []
     pages = None
     if ext in PDF_EXT:
@@ -180,11 +206,15 @@ def builtin_parse(data: bytes, ext: str) -> ParseResult:
         md = _html(data)
     elif ext in TEXT_EXT:
         md = _decode(data)
-        if ext == "json":
-            try:
-                md = "```json\n" + json.dumps(json.loads(md), ensure_ascii=False, indent=1)[:400000] + "\n```"
-            except ValueError:
-                pass
+        if ext in ("json", "jsonl", "ndjson"):
+            doc = _json_doc(md, name or f"数据.{ext}")
+            if doc is not None:
+                md = doc
+            else:
+                try:
+                    md = "```json\n" + json.dumps(json.loads(md), ensure_ascii=False, indent=1) + "\n```"
+                except ValueError:
+                    pass
     elif ext in MINERU_ONLY_EXT:
         kind = "图片" if ext in IMAGE_EXT else f".{ext} 文件"
         raise ParseError(f"{kind}需要 MinerU 才能识别（内置解析只支持 PDF 文字版、Word、Excel/CSV 与文本）。"
@@ -500,7 +530,7 @@ async def parse_bytes(data: bytes, name: str, ext: str, *, data_id: str = "") ->
     for p in candidates(ext):
         try:
             if p == "builtin":
-                res = await asyncio.to_thread(builtin_parse, data, ext)
+                res = await asyncio.to_thread(builtin_parse, data, ext, name)
             elif p == "mineru_api":
                 res = await mineru_api_parse(data, name, deadline=deadline, ext=ext)
             elif p == "mineru_cloud":

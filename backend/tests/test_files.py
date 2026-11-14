@@ -42,7 +42,7 @@ def test_builtin_parsers():
     buf = io.BytesIO()
     wb.save(buf)
     md = builtin_parse(buf.getvalue(), "xlsx").markdown
-    assert "## 工作表：门店" in md and "| 上海 | 12 |" in md
+    assert "工作表：门店" in md and "| 上海 | 12 |" in md
 
     assert "| 北京 | 3 |" in builtin_parse("城市,数量\n北京,3\n".encode("gbk"), "csv").markdown
 
@@ -299,3 +299,45 @@ async def test_file_plus_web_research(client, fake_llm, fake_browser):
     assert srcs[0]["access_method"] == "user_file" and srcs[0]["n"] == 1  # 文件排在网页之前
     assert {s["access_method"] for s in srcs} == {"user_file", "browser"}
     assert [s["key"] for s in parts_of(ans, "progress")[0]["stages"]][:3] == ["files", "plan", "search"]
+
+
+def test_json_dataset_profile():
+    import json
+
+    from cloudsearch.files.parsers import builtin_parse
+    from cloudsearch.files.profile import load_json_records
+
+    recs = [{"id": i, "spot": ["井冈山", "延安"][i % 2], "q": f"问题{i % 7}", "a": "答" * (i % 5 + 1),
+             "meta": {"src": "官网"}} for i in range(300)]
+    recs.append(dict(recs[0]))
+    md = builtin_parse(json.dumps({"data": {"items": recs}}, ensure_ascii=False).encode(), "json", "qa.json").markdown
+    assert "记录总数：301 条" in md and "记录位置：字段 data.items" in md and "完全重复的记录：1 条" in md
+    assert "**spot**（2 个取值）：井冈山：151 条（50.2%）" in md and "meta.src" in md
+    assert "〔第 301 条〕" in md  # 全部记录保留，不再截断
+    assert load_json_records('{"a":1}\n{"a":2}\n')[1] == "每行一条（JSONL）"
+
+
+async def test_long_file_reads_selected_segments(client, fake_llm, fake_browser, monkeypatch):
+    """大数据文件：只精读有限片段（概览必读），报告注明精读比例，不再逐块读完全部。"""
+    import json
+
+    from cloudsearch.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "files_max_segments", 4)
+    recs = [{"id": i, "spot": f"景点{i % 9}", "question": f"景点{i % 9}的开放时间？", "answer": "说明" * 80}
+            for i in range(1500)]
+    h = await register(client)
+    cid = (await client.post("/api/v1/conversations", json={}, headers=h)).json()["conversation_id"]
+    fid = (await client.post(f"/api/v1/conversations/{cid}/files", headers=h, files={
+        "files": ("RedAttractionQA_test.json", json.dumps(recs, ensure_ascii=False).encode(), "application/json")})
+           ).json()[0]["file_id"]
+    fake_llm.compiler_outputs.append({"kind": "chat", "reply": "好", "conversation_title": "分析"})
+    await client.post(f"/api/v1/conversations/{cid}/messages", headers=h, json={
+        "client_message_id": str(uuid.uuid4()), "text": "分析一下这个数据集，输出报告", "file_ids": [fid]})
+    await run_worker()
+    task = (await client.get(f"/api/v1/conversations/{cid}/tasks", headers=h)).json()[0]
+    assert task["task_status"] == "completed", task
+    assert fake_llm.calls["extractor"] == 4  # 只精读 4 段
+    assert any("记录总数：1,500 条" in p for p in fake_llm.prompts["extractor"])  # 概览必读
+    writer = fake_llm.prompts["report_writer"][0]
+    assert "精读了其中 4 部分" in writer

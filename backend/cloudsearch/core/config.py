@@ -209,6 +209,8 @@ class Settings(BaseSettings):
     files_parser: str = "auto"
     files_parse_concurrency: int = 2
     files_parse_timeout_s: int = 1800
+    # 每个任务最多精读的文件片段数（长文档/大数据文件按与问题的相关度 + 均匀覆盖挑选；数据文件的统计概览总会读）
+    files_max_segments: int = 10
 
     # MinerU 多模态文档解析（PDF/扫描件/图片/Office → Markdown，含表格、公式、版面）
     mineru_api_url: str | None = None  # 自部署服务地址，如 http://127.0.0.1:8003（mineru-kit file-parse-server）

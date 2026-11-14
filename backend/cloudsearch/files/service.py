@@ -177,12 +177,14 @@ def segments(md: str, max_chars: int = 14000) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
     buf = ""
     for b in blocks:
-        while len(b) > max_chars:  # 单个超长节：硬切
+        while len(b) > max_chars:  # 单个超长节：在换行处切开（避免切断一条记录）
             if buf:
                 out.append(buf)
                 buf = ""
-            out.append(b[:max_chars])
-            b = b[max_chars:]
+            cut = b.rfind("\n", max_chars // 2, max_chars)
+            cut = cut + 1 if cut > 0 else max_chars
+            out.append(b[:cut])
+            b = b[cut:]
         if buf and len(buf) + len(b) > max_chars:
             out.append(buf)
             buf = b

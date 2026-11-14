@@ -105,6 +105,7 @@ class Pipeline:
         self._next_n = 1
         self._llm_sem = asyncio.Semaphore(LLM_CONCURRENCY)
         self.file_failures: list[dict] = []
+        self.file_partial: list[dict] = []
         self.storage = get_storage()
 
     # ------------------------------------------------------------ 进度
@@ -250,6 +251,7 @@ class Pipeline:
         out = await self.ctx.step("files", self._files_fn, node_kind="deterministic",
                                   input_json={"file_ids": self.spec.scope.file_ids})
         self.file_failures = out.get("failed", [])
+        self.file_partial = out.get("partial", [])
         for o in out["sources"]:
             self._register_source(o)
         await self._stage("files", "done", sources_read=len(out["sources"]),
@@ -283,34 +285,62 @@ class Pipeline:
             await asyncio.sleep(2)
         sources, failed, persist_rows = [], [], []
         now = utcnow()
+        items: list[tuple] = []  # (文件, 序号, 段标签, 文本, 该文件段数)
         for f in rows:
             if f.parse_status != "parsed":
                 failed.append({"name": f.display_name, "reason": f.parse_error or "解析未完成"})
                 continue
-            md = await load_markdown(f)
-            segs = segments(md)
-            for k, (label, text) in enumerate(segs, 1):
-                srid = new_id("srcrev")
-                ref, chash = await self.storage.put(f"sources/{c.task_id}/{srid}.txt", text.encode("utf-8"))
-                n = self._next_n
-                self._next_n += 1
-                url = f"file:{f.file_id}#{k}"
-                title = f.display_name + (f" · {label}" if len(segs) > 1 and label else "")
-                persist_rows.append(SourceRevision(
-                    source_revision_id=srid, project_id=c.project_id, task_id=c.task_id, source_no=n,
-                    request_url=url, final_url=url, title=title[:512], site_name="上传的文件", retrieved_time=now,
-                    access_method="user_file", content_hash=chash, content_ref=ref, text_char_qty=len(text),
-                    revision_status="captured"))
-                sources.append({"source_revision_id": srid, "n": n, "url": url, "final_url": url, "title": title,
-                                "site_name": "上传的文件", "publish_time_text": None, "retrieved_time": iso(now),
-                                "access_method": "user_file", "content_ref": ref, "file_id": f.file_id})
+            segs = segments(await load_markdown(f))
+            items += [(f, k, label, text, len(segs)) for k, (label, text) in enumerate(segs, 1)]
+        chosen, partial = self._pick_file_segments(items)
+        for f, k, label, text, nseg in chosen:
+            srid = new_id("srcrev")
+            ref, chash = await self.storage.put(f"sources/{c.task_id}/{srid}.txt", text.encode("utf-8"))
+            n = self._next_n
+            self._next_n += 1
+            url = f"file:{f.file_id}#{k}"
+            title = f.display_name + (f" · {label}" if nseg > 1 and label else "")
+            persist_rows.append(SourceRevision(
+                source_revision_id=srid, project_id=c.project_id, task_id=c.task_id, source_no=n,
+                request_url=url, final_url=url, title=title[:512], site_name="上传的文件", retrieved_time=now,
+                access_method="user_file", content_hash=chash, content_ref=ref, text_char_qty=len(text),
+                revision_status="captured"))
+            sources.append({"source_revision_id": srid, "n": n, "url": url, "final_url": url, "title": title,
+                            "site_name": "上传的文件", "publish_time_text": None, "retrieved_time": iso(now),
+                            "access_method": "user_file", "content_ref": ref, "file_id": f.file_id})
         missing = [i for i in ids if i not in {f.file_id for f in rows}]
         failed += [{"name": i, "reason": "文件不存在或已删除"} for i in missing]
 
         async def persist(s: AsyncSession) -> None:
             s.add_all(persist_rows)
 
-        return StepResult({"sources": sources, "failed": failed}, persist)
+        return StepResult({"sources": sources, "failed": failed, "partial": partial}, persist)
+
+    def _pick_file_segments(self, items: list[tuple]) -> tuple[list[tuple], list[dict]]:
+        """片段太多时挑选：每个文件的第 1 段（开头/数据概览）必读；其余一半按与问题的相关度、一半均匀覆盖全文。"""
+        from ..agents.extractor.passages import _grams
+
+        limit = max(1, get_settings().files_max_segments)
+        if len(items) <= limit:
+            return items, []
+        keep = [i for i, it in enumerate(items) if it[1] == 1][:limit]
+        rest = [i for i in range(len(items)) if i not in keep]
+        slots = limit - len(keep)
+        want = set().union(*(_grams(t) for t in [self.spec.requirement_text, *self.spec.scope.questions] if t))
+        by_rel = sorted(rest, key=lambda i: -len(want & _grams(items[i][3][:20000])) / (len(want) or 1))
+        chosen = set(keep) | set(by_rel[: slots - slots // 2])
+        left = [i for i in rest if i not in chosen]
+        n = slots - (len(chosen) - len(keep))
+        if n > 0 and left:
+            chosen |= {left[round(j * (len(left) - 1) / max(1, n - 1))] for j in range(n)}
+        picked = [items[i] for i in sorted(chosen)]
+        partial: dict[str, dict] = {}
+        for f, *_rest in items:
+            d = partial.setdefault(f.file_id, {"name": f.display_name, "total": 0, "read": 0})
+            d["total"] += 1
+        for f, *_rest in picked:
+            partial[f.file_id]["read"] += 1
+        return picked, [d for d in partial.values() if d["read"] < d["total"]]
 
     def _citation(self, n: int) -> dict | None:
         for s in self.sources.values():
@@ -863,6 +893,8 @@ class Pipeline:
             gaps.append(f"{self.blocked} 个来源访问受限、{self.failed} 个读取失败，未纳入")
         gaps += [f"覆盖不足：{m}" for m in self.coverage_missing]
         gaps += [f"文件「{x['name']}」未能读取：{x['reason']}" for x in self.file_failures]
+        gaps += [f"文件「{x['name']}」较长（共 {x['total']} 部分），本次按与问题的相关度和均匀覆盖精读了其中 {x['read']} 部分；"
+                 "数据文件的统计数字来自程序对全部记录的计算" for x in self.file_partial]
         is_answer = self.spec.mode == "quick_search"
         report = self.spec.report
         outline = (report.outline if report and report.outline else []) or list(self.sub_questions)
