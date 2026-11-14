@@ -6,7 +6,7 @@
 |---|---|
 | [design-system.md](design-system.md) | 设计原则、色彩、字体、圆角阴影、组件规范、深色主题、响应式断点 |
 | [user-app.md](user-app.md) | 用户端：首页、登录、对话工作台（三栏）、云端浏览器与人工接手、回答呈现、我的成果、设置 |
-| [admin-console.md](admin-console.md) | 管理端：布局与导航、概览、供应方、模型、智能体分工、搜索与浏览器、任务限额、任务、调用记录、用户 |
+| [admin-console.md](admin-console.md) | 管理端（控制台 v2）：布局、交互规则、概览、模型与供应方、智能体分工、运行参数、引擎检测、任务、调用记录、用户 |
 | [uxpilot-prompts.md](uxpilot-prompts.md) | 用 UX Pilot 重新生成界面时使用的提示词（与上面三份文档一致） |
 
 ## 产品一句话
@@ -25,11 +25,13 @@
 ├── /artifacts        我的成果：报告与数据文件（同一成果多格式合并）
 └── /settings         设置：账号、偏好、外观
 
-管理端（左侧深色导航，独立布局）
+管理端（控制台：左侧贴边深色导航 + 顶部工具栏，独立布局）
 ├── /admin/overview   概览
-├── 模型：/admin/providers 供应方 · /admin/models 模型 · /admin/agents 智能体分工
-├── 运行：/admin/search 搜索与浏览器 · /admin/limits 任务限额
-└── 数据：/admin/tasks 任务 · /admin/runs 调用记录 · /admin/users 用户
+├── 模型服务：/admin/models 模型与供应方（主从）· /admin/agents 智能体分工
+├── 运行配置：/admin/settings 运行参数（含任务限额）· /admin/diagnose 引擎检测
+├── 记录：/admin/tasks 任务 · /admin/runs 调用记录
+└── 账号：/admin/users 用户
+   （旧地址 /admin/providers、/admin/search、/admin/limits、/admin/llm 自动跳转）
 ```
 
 ## 设计关键词

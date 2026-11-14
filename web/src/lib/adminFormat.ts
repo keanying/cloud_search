@@ -66,3 +66,44 @@ export function hueTone(s: string): Exclude<Pastel, 'gray'> {
   for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) % 1000003
   return tones[h % tones.length]
 }
+
+/** 执行轮次 / 步骤状态 */
+export const STEP_STATUS: Record<string, { label: string; tone: Pastel }> = {
+  succeeded: { label: '完成', tone: 'mint' },
+  completed: { label: '完成', tone: 'mint' },
+  running: { label: '进行中', tone: 'sky' },
+  queued: { label: '排队', tone: 'gray' },
+  failed: { label: '失败', tone: 'peach' },
+  partial_failed: { label: '部分失败', tone: 'butter' },
+  cancelled: { label: '已取消', tone: 'gray' },
+  stopped: { label: '已停止', tone: 'gray' },
+  paused: { label: '已暂停', tone: 'butter' },
+  skipped: { label: '跳过', tone: 'gray' },
+}
+export const stepStatus = (s: string) => STEP_STATUS[s] ?? { label: s, tone: 'gray' as Pastel }
+
+const NODE_LABEL: Record<string, string> = {
+  plan: '规划搜索',
+  search: '搜索',
+  select: '挑选候选',
+  read: '读取网页',
+  extract: '抽取证据',
+  coverage: '覆盖评估',
+  verify: '核验',
+  build: '整理数据',
+  analyze: '计算分析',
+  write: '撰写',
+}
+/** 步骤节点 ID（如 extract:sr_x、coverage:w1）→ 中文名 */
+export function nodeLabel(nodeId: string): string {
+  const head = nodeId.split(':')[0]
+  return NODE_LABEL[head] ?? head
+}
+
+export const REVISION_STATUS: Record<string, { label: string; tone: Pastel }> = {
+  captured: { label: '已读取', tone: 'mint' },
+  blocked: { label: '访问受限', tone: 'butter' },
+  failed: { label: '读取失败', tone: 'peach' },
+  no_content: { label: '无正文', tone: 'gray' },
+}
+export const revisionStatus = (s: string) => REVISION_STATUS[s] ?? { label: s, tone: 'gray' as Pastel }

@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { RouterLink } from 'vue-router'
-import { AlertTriangle, Bot, Coins, FileStack, FileText, MessagesSquare, RefreshCw, Snowflake, Users } from 'lucide-vue-next'
+import { RouterLink, useRouter } from 'vue-router'
+import { Activity, ArrowRight, Coins, FileText, Hash, ListChecks, RefreshCw, Users } from 'lucide-vue-next'
 import type { AdminOverview } from '@/api/types'
 import { api } from '@/api/client'
 import AdminChart from '@/components/admin/AdminChart.vue'
 import AdminPage from '@/components/admin/AdminPage.vue'
 import StatusPill from '@/components/admin/StatusPill.vue'
+import TaskDrawer from '@/components/admin/TaskDrawer.vue'
 import DataTable, { type Column } from '@/components/common/DataTable.vue'
 import SegmentedControl from '@/components/common/SegmentedControl.vue'
 import { compact, money } from '@/lib/adminFormat'
@@ -38,24 +39,65 @@ const range = computed(() => {
   return { total, completed, failed }
 })
 const dayMax = computed(() => Math.max(1, ...(data.value?.tasks_by_day ?? []).map((d) => d.total)))
-const pct = (n: number) => (range.value.total ? `${Math.round((n / range.value.total) * 100)}%` : '—')
 const llm = computed(() => data.value?.llm)
 const successRate = computed(() => {
   const l = llm.value
   if (!l || !l.requests) return null
   return Math.max(0, 1 - l.failed_runs / l.requests)
 })
-const RING = 2 * Math.PI * 42
-
-const smallStats = computed(() => {
+const router = useRouter()
+const taskOpen = ref<string | null>(null)
+const costText = computed(() => {
+  const c = llm.value?.cost ?? []
+  return c.length ? c.map((x) => money(x.minor_amt, x.currency_code)).join(' + ') : '—'
+})
+const kpis = computed(() => {
   const t = data.value?.totals
+  const l = llm.value
+  const done = range.value.total ? Math.round((range.value.completed / range.value.total) * 100) : null
   return [
-    { label: '用户', value: t?.users, icon: Users, tone: 'lilac' },
-    { label: '对话', value: t?.conversations, icon: MessagesSquare, tone: 'sky' },
-    { label: '成果文件', value: t?.artifacts, icon: FileStack, tone: 'butter' },
-    { label: '已读网页', value: t?.sources_read, icon: FileText, tone: 'mint' },
+    {
+      key: 'tasks', label: `近 ${days.value} 天任务`, icon: ListChecks, tone: 'peach',
+      value: data.value ? compact(range.value.total) : '—',
+      sub: data.value ? `完成率 ${done == null ? '—' : `${done}%`}${t?.tasks_active ? ` · ${t.tasks_active} 个进行中` : ''}` : '',
+      to: { name: 'admin-tasks' },
+    },
+    {
+      key: 'llm', label: '模型调用', icon: Activity, tone: 'lilac',
+      value: l ? compact(l.requests) : '—',
+      sub: successRate.value == null ? '' : `成功率 ${(successRate.value * 100).toFixed(1)}%${l?.failed_runs ? ` · ${l.failed_runs} 次失败` : ''}`,
+      to: { name: 'admin-runs' },
+    },
+    {
+      key: 'tokens', label: 'Token', icon: Hash, tone: 'sky',
+      value: l ? compact(l.input_tokens + l.output_tokens) : '—',
+      sub: l ? `输入 ${compact(l.input_tokens)} · 输出 ${compact(l.output_tokens)}` : '',
+      to: null,
+    },
+    {
+      key: 'cost', label: '费用', icon: Coins, tone: 'butter',
+      value: costText.value,
+      sub: l?.unknown_cost_runs ? `${l.unknown_cost_runs} 次待核算（模型未配置单价）` : '已全部核算',
+      to: null,
+    },
+    {
+      key: 'sources', label: '已读网页', icon: FileText, tone: 'mint',
+      value: t ? compact(t.sources_read) : '—',
+      sub: t ? `生成文件 ${compact(t.artifacts)} 个` : '',
+      to: null,
+    },
+    {
+      key: 'users', label: '用户', icon: Users, tone: 'lilac',
+      value: t ? compact(t.users) : '—',
+      sub: t ? `对话 ${compact(t.conversations)} 个` : '',
+      to: { name: 'admin-users' },
+    },
   ] as const
 })
+function openFailure(f: AdminOverview['recent_failures'][number]) {
+  if (f.kind === 'task') taskOpen.value = f.id
+  else void router.push({ name: 'admin-runs', query: { status: 'failed' } })
+}
 
 // ---------------------------------------------------------------- 图表配置
 const PAL = {
@@ -70,9 +112,9 @@ const tasksOption = computed(() => {
       name,
       type: 'bar',
       stack: 't',
-      barMaxWidth: 26,
+      barMaxWidth: 22,
       data: values,
-      itemStyle: { color, borderRadius: top ? [8, 8, 0, 0] : 0 },
+      itemStyle: { color, borderRadius: top ? [4, 4, 0, 0] : 0 },
       emphasis: { focus: 'series' },
     })
     return {
@@ -125,8 +167,8 @@ const roleOption = computed(() => {
         {
           type: 'bar',
           data: rows.map((r) => r.requests),
-          barMaxWidth: 14,
-          itemStyle: { color: dark ? '#a596ef' : '#7b68d8', borderRadius: [0, 7, 7, 0] },
+          barMaxWidth: 12,
+          itemStyle: { color: dark ? '#a596ef' : '#7b68d8', borderRadius: [0, 4, 4, 0] },
           label: { show: true, position: 'right', color: p.muted, fontSize: 11 },
         },
       ],
@@ -148,6 +190,7 @@ const cooling = (e: AdminOverview['engines'][number]) => !!e.cooldown_until && n
     <template #actions>
       <SegmentedControl
         v-model="days"
+        small
         label="统计范围"
         :options="[
           { value: 7, label: '7 天' },
@@ -155,133 +198,78 @@ const cooling = (e: AdminOverview['engines'][number]) => !!e.cooldown_until && n
           { value: 30, label: '30 天' },
         ]"
       />
-      <button class="round-btn-light" :disabled="loading" aria-label="刷新" title="刷新" @click="load">
+      <button class="icon-btn" :disabled="loading" aria-label="刷新" title="刷新" @click="load">
         <RefreshCw class="h-4 w-4" :class="loading ? 'animate-spin' : ''" />
       </button>
     </template>
 
-    <div class="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-12 [&>*]:min-w-0">
-      <!-- 主卡片：任务 -->
-      <section class="hero flex flex-col p-6 xl:col-span-4" aria-label="任务概况">
-        <div class="flex items-center justify-between text-sm font-semibold opacity-90">
-          <span>近 {{ days }} 天任务</span>
-          <span v-if="data?.totals.tasks_active" class="rounded-full bg-white/20 px-2.5 py-0.5 text-xs">{{ data.totals.tasks_active }} 个进行中</span>
+    <!-- KPI -->
+    <div class="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-6">
+      <component
+        :is="k.to ? RouterLink : 'div'"
+        v-for="k in kpis"
+        :key="k.key"
+        :to="k.to ?? undefined"
+        class="kpi ac-panel flex flex-col px-4 py-3.5"
+        :class="k.to ? 'kpi-link' : ''"
+      >
+        <div class="flex items-center gap-2">
+          <span class="flex h-6 w-6 items-center justify-center rounded-md" :style="{ background: `var(--pastel-${k.tone})`, color: `var(--pastel-${k.tone}-ink)` }">
+            <component :is="k.icon" class="h-3.5 w-3.5" />
+          </span>
+          <span class="text-[12px] font-medium text-slate-400">{{ k.label }}</span>
+          <ArrowRight v-if="k.to" class="kpi-arrow ml-auto h-3.5 w-3.5 text-slate-400" />
         </div>
-        <div class="mt-3 text-[56px] leading-none font-bold tracking-tight tabular-nums">{{ data ? compact(range.total) : '—' }}</div>
-        <div class="mt-1 text-sm opacity-80">累计 {{ data ? compact(data.totals.tasks) : '—' }} 个任务</div>
-        <div v-if="data" class="mt-5 flex h-14 items-end gap-[3px]" aria-hidden="true">
+        <div class="mt-2.5 truncate text-[28px] leading-8 font-bold tracking-tight text-white tabular-nums">{{ k.value }}</div>
+        <div class="mt-1 truncate text-[12px] text-slate-400" :title="k.sub">{{ k.sub || '\u00a0' }}</div>
+        <div v-if="k.key === 'tasks' && data" class="mt-2.5 flex h-6 items-end gap-[2px]" aria-hidden="true">
           <span
             v-for="d in data.tasks_by_day"
             :key="d.date"
-            class="min-w-0 flex-1 rounded-t-[4px] bg-white/35"
-            :style="{ height: `${Math.max(6, (d.total / dayMax) * 100)}%` }"
-            :title="`${d.date}：${d.total} 个`"
+            class="min-w-0 flex-1 rounded-[2px]"
+            :style="{ height: `${Math.max(8, (d.total / dayMax) * 100)}%`, background: d.failed ? 'var(--pastel-peach-dot)' : 'color-mix(in srgb, var(--pastel-peach-dot) 45%, transparent)' }"
+            :title="`${d.date}：${d.total} 个（失败 ${d.failed}）`"
           />
         </div>
-        <div class="mt-auto grid grid-cols-3 pt-6">
-          <div class="pr-3">
-            <div class="text-xs opacity-75">完成</div>
-            <div class="mt-0.5 text-xl font-bold tabular-nums">{{ pct(range.completed) }}</div>
-          </div>
-          <div class="hero-split px-3">
-            <div class="text-xs opacity-75">失败</div>
-            <div class="mt-0.5 text-xl font-bold tabular-nums">{{ pct(range.failed) }}</div>
-          </div>
-          <div class="hero-split pl-3">
-            <div class="text-xs opacity-75">其他</div>
-            <div class="mt-0.5 text-xl font-bold tabular-nums">{{ pct(range.total - range.completed - range.failed) }}</div>
-          </div>
+      </component>
+    </div>
+
+    <!-- 图表 -->
+    <div class="mt-4 grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-3">
+      <section class="ac-panel xl:col-span-2">
+        <div class="ac-panel-head">
+          <span class="ac-panel-title">每日任务</span>
+          <span class="ac-panel-sub">按创建日期，堆叠显示完成 / 失败 / 其他（进行中、已停止、草稿等）</span>
+        </div>
+        <div class="px-3 pt-2 pb-3">
+          <AdminChart v-if="data" :option="tasksOption" :height="280" label="每日任务数量柱状图" />
+          <div v-else class="h-[280px]" />
         </div>
       </section>
-
-      <!-- 模型调用 -->
-      <section class="surface flex flex-col p-6 xl:col-span-4" aria-label="模型调用">
-        <div class="flex items-center justify-between">
-          <h2 class="card-title"><Bot class="h-4.5 w-4.5" /> 模型调用</h2>
-          <RouterLink :to="{ name: 'admin-runs' }" class="text-xs font-semibold text-slate-400 hover:text-white">调用记录 →</RouterLink>
+      <section class="ac-panel">
+        <div class="ac-panel-head">
+          <span class="ac-panel-title">各智能体调用次数</span>
+          <span class="ac-panel-sub">悬停看 token 与平均耗时</span>
         </div>
-        <div class="mt-2 flex items-center gap-6">
-          <div class="min-w-0 flex-1">
-            <div class="text-[44px] leading-none font-bold tracking-tight text-white tabular-nums">{{ llm ? compact(llm.requests) : '—' }}</div>
-            <div class="mt-1 text-sm text-slate-400">次请求（{{ days }} 天）</div>
-            <dl class="mt-4 space-y-1.5 text-sm">
-              <div class="flex items-center gap-2">
-                <span class="h-2 w-2 rounded-full bg-[var(--pastel-sky-dot)]" />
-                <dt class="text-slate-400">输入 token</dt>
-                <dd class="ml-auto font-semibold tabular-nums">{{ llm ? compact(llm.input_tokens) : '—' }}</dd>
-              </div>
-              <div class="flex items-center gap-2">
-                <span class="h-2 w-2 rounded-full bg-[var(--pastel-lilac-dot)]" />
-                <dt class="text-slate-400">输出 token</dt>
-                <dd class="ml-auto font-semibold tabular-nums">{{ llm ? compact(llm.output_tokens) : '—' }}</dd>
-              </div>
-            </dl>
-          </div>
-          <div class="relative h-[110px] w-[110px] shrink-0" :title="successRate == null ? '' : `成功率 ${(successRate * 100).toFixed(1)}%`">
-            <svg viewBox="0 0 100 100" class="h-full w-full -rotate-90" aria-hidden="true">
-              <circle cx="50" cy="50" r="42" fill="none" stroke="var(--cs-line-strong)" stroke-width="9" />
-              <circle
-                cx="50"
-                cy="50"
-                r="42"
-                fill="none"
-                stroke="var(--pastel-mint-dot)"
-                stroke-width="9"
-                stroke-linecap="round"
-                :stroke-dasharray="RING"
-                :stroke-dashoffset="RING * (1 - (successRate ?? 0))"
-                style="transition: stroke-dashoffset 0.6s ease"
-              />
-            </svg>
-            <div class="absolute inset-0 flex flex-col items-center justify-center">
-              <span class="text-lg font-bold text-white tabular-nums">{{ successRate == null ? '—' : `${Math.round(successRate * 100)}%` }}</span>
-              <span class="text-[11px] text-slate-400">成功率</span>
-            </div>
-          </div>
-        </div>
-        <div class="hairline mt-auto flex flex-wrap items-center gap-x-3 gap-y-1 border-t pt-4 text-sm">
-          <Coins class="h-4 w-4 text-slate-400" />
-          <span class="text-slate-400">费用</span>
-          <span v-if="!llm?.cost.length" class="font-semibold">—</span>
-          <span v-for="c in llm?.cost ?? []" :key="c.currency_code" class="font-semibold tabular-nums">{{ money(c.minor_amt, c.currency_code) }}</span>
-          <span v-if="llm?.unknown_cost_runs" class="pill card-butter accent-ink" title="这些调用的模型没有配置单价，未计入费用">{{ llm.unknown_cost_runs }} 次待核算</span>
-          <span v-if="llm?.failed_runs" class="ml-auto text-xs text-rose-300">{{ llm.failed_runs }} 次失败</span>
+        <div class="px-3 pt-2 pb-3">
+          <AdminChart v-if="data && data.llm_by_role.length" :option="roleOption" :height="280" label="各智能体调用次数条形图" />
+          <div v-else class="flex h-[280px] items-center justify-center text-[13px] text-slate-400">{{ data ? '暂无调用' : '' }}</div>
         </div>
       </section>
+    </div>
 
-      <!-- 小统计 -->
-      <div class="grid grid-cols-2 gap-4 xl:col-span-4">
-        <div v-for="s in smallStats" :key="s.label" class="surface flex flex-col p-5">
-          <span class="flex h-10 w-10 items-center justify-center rounded-2xl" :class="`card-${s.tone}`">
-            <component :is="s.icon" class="h-5 w-5 accent-ink" />
-          </span>
-          <span class="mt-auto pt-4 text-[30px] leading-9 font-bold tracking-tight text-white tabular-nums">{{ s.value == null ? '—' : compact(s.value) }}</span>
-          <span class="text-sm text-slate-400">{{ s.label }}</span>
+    <!-- 列表 -->
+    <div class="mt-4 grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-3">
+      <section class="ac-panel overflow-hidden">
+        <div class="ac-panel-head">
+          <span class="ac-panel-title">按模型</span>
+          <span class="flex-1" />
+          <RouterLink :to="{ name: 'admin-models' }" class="text-[12px] font-medium text-slate-400 hover:text-white">管理模型 →</RouterLink>
         </div>
-      </div>
-
-      <!-- 每日任务 -->
-      <section class="surface p-6 xl:col-span-8">
-        <h2 class="card-title">每日任务</h2>
-        <p class="text-xs text-slate-400">按创建日期统计，堆叠显示完成 / 失败 / 其他（进行中、已停止、草稿等）</p>
-        <AdminChart v-if="data" class="mt-3" :option="tasksOption" :height="300" label="每日任务数量柱状图" />
-      </section>
-
-      <!-- 智能体调用 -->
-      <section class="surface p-6 xl:col-span-4">
-        <h2 class="card-title">各智能体调用次数</h2>
-        <p class="text-xs text-slate-400">悬停查看 token 与平均耗时</p>
-        <AdminChart v-if="data && data.llm_by_role.length" class="mt-3" :option="roleOption" :height="300" label="各智能体调用次数条形图" />
-        <div v-else-if="data" class="flex h-[300px] items-center justify-center text-sm text-slate-400">暂无调用</div>
-      </section>
-
-      <!-- 按模型 -->
-      <section class="xl:col-span-5">
-        <h2 class="card-title mb-3 px-1">按模型</h2>
-        <DataTable :columns="modelColumns" :rows="modelRows" :row-key="(r) => `${r.provider_name}/${r.model_name}`" :loading="loading && !data" density="compact" empty-text="暂无调用">
+        <DataTable :columns="modelColumns" :rows="modelRows" :row-key="(r) => `${r.provider_name}/${r.model_name}`" :loading="loading && !data" density="compact" bare empty-text="暂无调用">
           <template #cell-model_name="{ row }">
             <div class="leading-tight">
-              <div class="truncate font-semibold text-white">{{ row.model_name || '—' }}</div>
+              <div class="truncate font-medium text-white">{{ row.model_name || '—' }}</div>
               <div class="text-[11px] text-slate-500">{{ row.provider_name }}</div>
             </div>
           </template>
@@ -292,67 +280,73 @@ const cooling = (e: AdminOverview['engines'][number]) => !!e.cooldown_until && n
         </DataTable>
       </section>
 
-      <!-- 搜索引擎 -->
-      <section class="surface p-5 xl:col-span-3">
-        <div class="mb-3 flex items-center justify-between">
-          <h2 class="card-title">搜索引擎</h2>
-          <RouterLink :to="{ name: 'admin-search' }" class="text-xs font-semibold text-slate-400 hover:text-white">配置 →</RouterLink>
+      <section class="ac-panel">
+        <div class="ac-panel-head">
+          <span class="ac-panel-title">搜索引擎</span>
+          <span class="flex-1" />
+          <RouterLink :to="{ name: 'admin-diagnose' }" class="text-[12px] font-medium text-slate-400 hover:text-white">检测</RouterLink>
+          <RouterLink :to="{ name: 'admin-settings', hash: '#search' }" class="text-[12px] font-medium text-slate-400 hover:text-white">配置 →</RouterLink>
         </div>
-        <ul class="space-y-1">
-          <li v-for="e in data?.engines ?? []" :key="e.name" class="flex items-center gap-2.5 rounded-xl px-2 py-1.5">
-            <span class="h-2 w-2 shrink-0 rounded-full" :class="!e.enabled ? 'bg-slate-500/50' : cooling(e) ? 'bg-[var(--pastel-butter-dot)]' : 'bg-[var(--pastel-mint-dot)]'" />
-            <span class="min-w-0 flex-1 truncate text-sm" :class="e.enabled ? 'text-white' : 'text-slate-500'">{{ e.label }}</span>
+        <ul class="px-2 py-1.5">
+          <li v-for="e in data?.engines ?? []" :key="e.name" class="flex items-center gap-2.5 rounded-lg px-2 py-1.5">
+            <span class="h-1.5 w-1.5 shrink-0 rounded-full" :class="!e.enabled ? 'bg-slate-500/50' : cooling(e) ? 'bg-[var(--pastel-butter-dot)]' : 'bg-[var(--pastel-mint-dot)]'" />
+            <span class="min-w-0 flex-1 truncate text-[13px]" :class="e.enabled ? 'text-white' : 'text-slate-500'">{{ e.label }}</span>
             <span v-if="e.kind === 'vertical'" class="text-[11px] text-slate-500">垂直</span>
             <StatusPill v-if="cooling(e)" tone="butter" text="冷却中" :title="`冷却到 ${new Date(e.cooldown_until!).toLocaleTimeString('zh-CN')}`" />
             <span v-else-if="!e.enabled" class="text-[11px] text-slate-500">未启用</span>
           </li>
         </ul>
-        <p class="mt-3 flex items-start gap-1.5 text-[11px] leading-4 text-slate-500">
-          <Snowflake class="mt-px h-3 w-3 shrink-0" /> 被拦截或网络不通的引擎会暂时冷却，冷却状态为当前服务进程内的记录。
-        </p>
+        <p class="border-t border-[var(--cs-line)] px-4 py-2.5 text-[11px] leading-4 text-slate-500">被拦截或网络不通的引擎会暂时冷却；冷却状态是当前服务进程内的记录。</p>
       </section>
 
-      <!-- 最近失败 -->
-      <section class="surface p-5 xl:col-span-4">
-        <h2 class="card-title mb-3"><AlertTriangle class="h-4.5 w-4.5 text-rose-300" /> 最近失败</h2>
-        <ul v-if="data?.recent_failures.length" class="space-y-1">
+      <section class="ac-panel">
+        <div class="ac-panel-head">
+          <span class="ac-panel-title">最近失败</span>
+          <span class="flex-1" />
+          <RouterLink :to="{ name: 'admin-tasks', query: { status: 'failed' } }" class="text-[12px] font-medium text-slate-400 hover:text-white">全部 →</RouterLink>
+        </div>
+        <ul v-if="data?.recent_failures.length" class="px-2 py-1.5">
           <li v-for="f in data.recent_failures" :key="`${f.kind}-${f.id}`">
-            <component
-              :is="f.conversation_id ? RouterLink : 'div'"
-              :to="f.conversation_id ? { name: 'chat', params: { id: f.conversation_id } } : undefined"
-              class="block rounded-xl px-2.5 py-2 transition hover:bg-[var(--cs-line)]"
-            >
+            <button type="button" class="block w-full rounded-lg px-2 py-2 text-left transition hover:bg-[var(--cs-line)]" @click="openFailure(f)">
               <div class="flex items-center gap-2">
-                <span class="pill !py-0 text-[11px]" :class="f.kind === 'task' ? 'card-peach accent-ink' : 'card-lilac accent-ink'">{{ f.kind === 'task' ? '任务' : '调用' }}</span>
-                <span class="min-w-0 flex-1 truncate text-sm font-semibold text-white">{{ f.title }}</span>
+                <span class="kind">{{ f.kind === 'task' ? '任务' : '调用' }}</span>
+                <span class="min-w-0 flex-1 truncate text-[13px] font-medium text-white">{{ f.title }}</span>
                 <span class="shrink-0 text-[11px] text-slate-500">{{ relativeTime(f.time) }}</span>
               </div>
-              <div v-if="f.detail" class="mt-0.5 line-clamp-1 pl-1 text-xs text-slate-400" :title="f.detail">{{ f.detail }}</div>
-            </component>
+              <div v-if="f.detail" class="mt-0.5 line-clamp-1 pl-[42px] text-[12px] text-slate-400" :title="f.detail">{{ f.detail }}</div>
+            </button>
           </li>
         </ul>
-        <div v-else class="flex flex-col items-center py-8 text-center">
-          <span class="text-2xl" aria-hidden="true">🌿</span>
-          <span class="mt-1 text-sm text-slate-400">{{ data ? '这段时间没有失败' : '加载中…' }}</span>
-        </div>
+        <div v-else class="px-4 py-10 text-center text-[13px] text-slate-400">{{ data ? '这段时间没有失败' : '加载中…' }}</div>
       </section>
     </div>
+
+    <TaskDrawer :task-id="taskOpen" @close="taskOpen = null" />
   </AdminPage>
 </template>
 
 <style scoped>
-.hero {
-  border-radius: 28px;
-  background: #e8673a;
-  color: #fff;
-  min-height: 260px;
-  box-shadow: 0 18px 40px -22px rgb(232 103 58 / 0.7);
+.kpi-link {
+  transition: border-color 0.15s ease;
 }
-html.dark .hero {
-  background: #c4552d;
-  box-shadow: none;
+.kpi-link:hover {
+  border-color: var(--cs-line-strong);
 }
-.hero-split {
-  border-left: 2px dotted rgb(255 255 255 / 0.45);
+.kpi-arrow {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.kpi-link:hover .kpi-arrow {
+  opacity: 1;
+}
+.kind {
+  display: inline-flex;
+  flex-shrink: 0;
+  border: 1px solid var(--cs-line-strong);
+  border-radius: 6px;
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--color-slate-300);
 }
 </style>

@@ -1,0 +1,208 @@
+/*
+ * 管理后台（控制台）样式层：只在 <html class="admin-mode"> 时生效，不影响用户端。
+ * 目标：克制、紧凑、专业 —— 14px 基准字号、12px 面板圆角、8px 控件圆角、细描边、极少阴影；
+ * 粉彩只用于小面积的状态与标签，不做大面积卡片底色。
+ * 这里是未分层（unlayered）的样式，会覆盖 Tailwind 的 @utility（位于 utilities 层）。
+ */
+
+html.admin-mode {
+  --ac-radius: 12px;
+  --ac-radius-sm: 8px;
+  --ac-side: #111214;
+  --ac-side-text: rgb(244 244 240 / 0.62);
+  --ac-side-hover: rgb(255 255 255 / 0.06);
+  --ac-side-active: rgb(255 255 255 / 0.1);
+  --ac-head: var(--color-slate-400);
+}
+html.admin-mode.dark {
+  --ac-side: #0f0f11;
+}
+
+html.admin-mode body {
+  font-size: 14px;
+}
+
+/* 面板：白底、细描边、12px 圆角、无阴影 */
+html.admin-mode .surface {
+  border-radius: var(--ac-radius);
+  box-shadow: none;
+}
+html.admin-mode .ac-panel {
+  border: 1px solid var(--cs-line);
+  border-radius: var(--ac-radius);
+  background: var(--cs-surface-solid);
+}
+html.admin-mode .ac-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 48px;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid var(--cs-line);
+}
+html.admin-mode .ac-panel-title {
+  flex-shrink: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-white);
+}
+html.admin-mode .ac-panel-sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--color-slate-400);
+}
+/* 小标题（表头、分组名） */
+html.admin-mode .ac-caps {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ac-head);
+}
+
+/* 按钮与控件：8px 圆角、紧凑高度 */
+html.admin-mode .btn,
+html.admin-mode .btn-primary,
+html.admin-mode .btn-secondary,
+html.admin-mode .btn-ghost,
+html.admin-mode .btn-danger {
+  border-radius: var(--ac-radius-sm);
+  padding: 0.4rem 0.8rem;
+  font-size: 13px;
+  min-height: 32px;
+}
+html.admin-mode .btn,
+html.admin-mode .btn-primary,
+html.admin-mode .btn-secondary,
+html.admin-mode .btn-ghost,
+html.admin-mode .btn-danger {
+  white-space: nowrap;
+}
+html.admin-mode .btn-sm {
+  padding: 0.22rem 0.6rem;
+  font-size: 12px;
+  min-height: 28px;
+}
+html.admin-mode .icon-btn {
+  border-radius: var(--ac-radius-sm);
+  height: 32px;
+  width: 32px;
+}
+html.admin-mode .round-btn-light {
+  border-radius: var(--ac-radius-sm);
+  height: 32px;
+  width: 32px;
+}
+html.admin-mode .input {
+  border-radius: var(--ac-radius-sm);
+  padding: 0.42rem 0.7rem;
+  font-size: 13px;
+}
+html.admin-mode select.input {
+  padding-right: 1.8rem;
+}
+html.admin-mode .chip {
+  border-radius: var(--ac-radius-sm);
+  font-size: 12px;
+}
+html.admin-mode .popover-menu {
+  border-radius: var(--ac-radius);
+}
+html.admin-mode .label {
+  font-size: 12px;
+  color: var(--color-slate-400);
+}
+
+/* 表格：13px，行高约 48px，表头 12px 灰色 */
+html.admin-mode .dt-table {
+  font-size: 13px;
+}
+html.admin-mode .dt-table th,
+html.admin-mode .dt-table td {
+  padding: 0.62rem 0.9rem;
+}
+html.admin-mode .dt-compact .dt-table th,
+html.admin-mode .dt-compact .dt-table td {
+  padding: 0.38rem 0.8rem;
+}
+html.admin-mode .dt-table thead th {
+  background: var(--cs-surface-sunken);
+  font-size: 12px;
+}
+html.admin-mode .dt-row.dt-row-on td {
+  background-color: color-mix(in srgb, var(--pastel-mint) 45%, var(--cs-surface-solid));
+}
+html.admin-mode .dt-page {
+  border-radius: 6px;
+}
+html.admin-mode .dt-size {
+  border-radius: 6px;
+}
+
+/* 键盘提示 */
+.ac-kbd {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--cs-line-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  padding: 0 5px;
+  font-size: 11px;
+  line-height: 16px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--color-slate-400);
+  background: var(--cs-surface-solid);
+}
+
+/* 表单行：左标签 + 说明，右控件 */
+.ac-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  gap: 0.5rem 2rem;
+  padding: 1rem 1.25rem;
+  border-top: 1px solid var(--cs-line);
+}
+.ac-row:first-child {
+  border-top: 0;
+}
+@media (max-width: 767px) {
+  .ac-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* 代码块（错误信息等） */
+.ac-code {
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow: auto;
+  border-radius: 8px;
+  border: 1px solid var(--cs-line);
+  background: var(--cs-code-bg);
+  padding: 0.7rem 0.85rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-slate-200);
+}
+
+/* 描述列表（抽屉中的键值对） */
+.ac-dl {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 0.5rem 1rem;
+  font-size: 13px;
+}
+.ac-dl dt {
+  color: var(--color-slate-400);
+}
+.ac-dl dd {
+  min-width: 0;
+  color: var(--color-slate-100);
+  word-break: break-word;
+}

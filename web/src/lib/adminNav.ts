@@ -1,11 +1,13 @@
 import type { Component } from 'vue'
-import { Activity, Boxes, Cpu, Gauge, LayoutDashboard, ListChecks, Network, Plug, Search, Users } from 'lucide-vue-next'
+import { Activity, Boxes, Cpu, LayoutDashboard, ListChecks, Network, Radar, SlidersHorizontal, Users } from 'lucide-vue-next'
 
 export interface AdminNavItem {
   name: string
   label: string
   icon: Component
   desc: string
+  /** 命令面板里的额外搜索关键词 */
+  keywords?: string
 }
 
 /** 管理后台导航（分组）；name 即路由名 */
@@ -15,29 +17,59 @@ export const ADMIN_NAV: { group: string | null; items: AdminNavItem[] }[] = [
     items: [{ name: 'admin-overview', label: '概览', icon: LayoutDashboard, desc: '任务、模型调用与搜索引擎的整体情况' }],
   },
   {
-    group: '模型',
+    group: '模型服务',
     items: [
-      { name: 'admin-providers', label: '供应方', icon: Plug, desc: '接入 OpenAI、DeepSeek、Kimi、火山方舟、通义千问、智谱等 OpenAI 兼容接口' },
-      { name: 'admin-models', label: '模型', icon: Cpu, desc: '登记可用模型、能力矩阵与单价，并测试连通与结构化输出' },
-      { name: 'admin-agents', label: '智能体分工', icon: Network, desc: '为八个智能体分别指定主模型、备用模型与生成参数' },
+      {
+        name: 'admin-models',
+        label: '模型与供应方',
+        icon: Cpu,
+        desc: '接入 OpenAI 兼容接口的供应方，登记模型能力与单价，并测试连通与结构化输出',
+        keywords: '供应方 provider openai deepseek kimi 火山 通义 智谱 api key 密钥 测试',
+      },
+      {
+        name: 'admin-agents',
+        label: '智能体分工',
+        icon: Network,
+        desc: '为八个智能体分别指定主模型、备用模型与生成参数；未指定的使用默认模型',
+        keywords: '绑定 默认模型 备用 温度',
+      },
     ],
   },
   {
-    group: '运行',
+    group: '运行配置',
     items: [
-      { name: 'admin-search', label: '搜索与浏览器', icon: Search, desc: '搜索引擎顺序、垂直来源、冷却策略与人工接手；检测本机网络下的引擎可用性' },
-      { name: 'admin-limits', label: '任务限额', icon: Gauge, desc: '每个任务的搜索、阅读、并发与模型调用上限' },
+      {
+        name: 'admin-settings',
+        label: '运行参数',
+        icon: SlidersHorizontal,
+        desc: '搜索引擎、垂直来源、冷却策略、人工接手与任务限额；保存后对新任务立即生效',
+        keywords: '搜索引擎 顺序 垂直来源 冷却 人工接手 验证码 任务限额 上限 config.yaml',
+      },
+      {
+        name: 'admin-diagnose',
+        label: '引擎检测',
+        icon: Radar,
+        desc: '用服务器上的浏览器真实打开每个搜索引擎，判断当前网络与代理下哪些可用',
+        keywords: '检测 可用性 代理 proxy 人机验证',
+      },
     ],
   },
   {
-    group: '数据',
+    group: '记录',
     items: [
-      { name: 'admin-tasks', label: '任务', icon: ListChecks, desc: '所有用户发起的任务及其状态与消耗' },
-      { name: 'admin-runs', label: '调用记录', icon: Activity, desc: '每一次智能体模型调用：耗时、token 与费用' },
-      { name: 'admin-users', label: '用户', icon: Users, desc: '账号、管理员权限与停用' },
+      { name: 'admin-tasks', label: '任务', icon: ListChecks, desc: '所有用户发起的任务：状态、步骤、来源与消耗' },
+      { name: 'admin-runs', label: '调用记录', icon: Activity, desc: '每一次智能体模型调用：耗时、token、费用与错误', keywords: 'token 费用 错误 失败' },
     ],
+  },
+  {
+    group: '账号',
+    items: [{ name: 'admin-users', label: '用户', icon: Users, desc: '账号、管理员权限与停用', keywords: '管理员 停用' }],
   },
 ]
 
-export const ADMIN_ITEMS = ADMIN_NAV.flatMap((g) => g.items)
+export const ADMIN_ITEMS = ADMIN_NAV.flatMap((g) => g.items.map((it) => ({ ...it, group: g.group })))
 export const ADMIN_ICON_FALLBACK = Boxes
+
+export function findAdminItem(name: unknown) {
+  return ADMIN_ITEMS.find((i) => i.name === name) ?? null
+}

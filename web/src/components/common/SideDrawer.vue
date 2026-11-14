@@ -30,13 +30,17 @@ void props
           class="drawer-panel relative flex h-full w-full flex-col"
           :style="{ maxWidth: `${width}px` }"
         >
-          <header class="hairline flex items-start gap-3 border-b px-6 py-5">
+          <header class="hairline flex items-start gap-3 border-b px-6 py-4">
             <div class="min-w-0 flex-1">
-              <h2 class="text-lg font-bold tracking-tight text-white">{{ title }}</h2>
-              <p v-if="desc" class="mt-0.5 text-sm text-slate-400">{{ desc }}</p>
+              <slot name="title">
+                <h2 class="text-base font-bold tracking-tight text-white">{{ title }}</h2>
+                <p v-if="desc" class="mt-0.5 text-[13px] text-slate-400">{{ desc }}</p>
+              </slot>
             </div>
+            <slot name="headerActions" />
             <button type="button" class="icon-btn" aria-label="关闭" @click="open = false"><X class="h-4 w-4" /></button>
           </header>
+          <slot name="tabs" />
           <div class="min-h-0 flex-1 overflow-y-auto px-6 py-5"><slot /></div>
           <footer v-if="$slots.footer" class="hairline flex items-center justify-end gap-2 border-t px-6 py-4">
             <slot name="footer" />
@@ -54,8 +58,8 @@ void props
 .drawer-panel {
   background: var(--cs-surface-solid);
   box-shadow: var(--cs-shadow-lg);
-  border-top-left-radius: 28px;
-  border-bottom-left-radius: 28px;
+  border-top-left-radius: 16px;
+  border-bottom-left-radius: 16px;
 }
 .drawer-enter-active,
 .drawer-leave-active {

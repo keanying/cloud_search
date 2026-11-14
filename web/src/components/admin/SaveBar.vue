@@ -9,12 +9,14 @@ const emit = defineEmits<{ save: []; discard: [] }>()
 <template>
   <Transition name="savebar">
     <div v-if="count" class="sticky bottom-4 z-20 mt-6 flex justify-center">
-      <div class="savebar flex items-center gap-3 rounded-full py-2 pr-2 pl-5" role="status">
+      <div class="savebar flex w-full max-w-[560px] items-center gap-3 rounded-xl py-1.5 pr-1.5 pl-4" role="status">
         <span class="h-2 w-2 rounded-full bg-[var(--pastel-butter-dot)]" />
-        <span class="text-sm font-medium">有 {{ count }} 项修改尚未保存</span>
+        <span class="text-[13px] font-medium">{{ count }} 项修改未保存</span>
+        <span class="hidden text-xs opacity-50 sm:inline">离开页面前请保存</span>
+        <span class="flex-1" />
         <button type="button" class="savebar-ghost" :disabled="saving" @click="emit('discard')">放弃</button>
         <button type="button" class="savebar-primary" :disabled="saving" @click="emit('save')">
-          <Loader2 v-if="saving" class="h-3.5 w-3.5 animate-spin" /> 保存修改
+          <Loader2 v-if="saving" class="h-3.5 w-3.5 animate-spin" /> 保存
         </button>
       </div>
     </div>
@@ -32,8 +34,8 @@ const emit = defineEmits<{ save: []; discard: [] }>()
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  border-radius: 999px;
-  padding: 0.45rem 1rem;
+  border-radius: 8px;
+  padding: 0.38rem 0.9rem;
   font-size: 13px;
   font-weight: 600;
 }

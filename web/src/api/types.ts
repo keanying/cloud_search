@@ -595,6 +595,62 @@ export interface AdminUser {
 }
 
 export type SettingType = 'engine_order' | 'select' | 'multi' | 'int' | 'bool'
+/** 任务详情（后台抽屉） */
+export interface AdminTaskDetail {
+  task: AdminTask
+  spec: { requirement_text: string | null; questions: string[]; limits: Record<string, number>; output_formats: string[] }
+  error_desc: string | null
+  runs: {
+    run_id: string
+    run_seq_no: number
+    run_status: string
+    worker_id: string | null
+    started_time: string | null
+    finished_time: string | null
+    duration_ms: number | null
+  }[]
+  steps: {
+    step_id: string
+    node_id: string
+    node_kind: string
+    agent_role: string | null
+    role_label: string | null
+    step_status: string
+    attempt_no: number
+    error_desc: string | null
+    started_time: string | null
+    duration_ms: number | null
+  }[]
+  sources: {
+    by_status: Record<string, number>
+    items: {
+      source_no: number | null
+      title: string | null
+      url: string
+      site_name: string | null
+      revision_status: string
+      failure_reason: string | null
+      credibility_label: string
+    }[]
+  }
+  llm: { requests: number; input_tokens: number; output_tokens: number; calls: number; failed: number }
+  artifacts: {
+    artifact_id: string
+    display_name: string
+    artifact_kind: string
+    byte_qty: number
+    record_qty: number | null
+    created_time: string
+  }[]
+}
+
+export interface AdminUserDetail {
+  user: AdminUser
+  llm_requests: number
+  tokens: number
+  recent_tasks: AdminTask[]
+}
+
 export type SettingValue = string | number | boolean | string[] | null
 
 export interface SettingField {

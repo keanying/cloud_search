@@ -1,38 +1,29 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { ADMIN_NAV } from '@/lib/adminNav'
+import { findAdminItem } from '@/lib/adminNav'
 
-/** 管理后台页面骨架：面包屑 + 标题/说明 + 右侧操作；内容区全宽（最大 1680px） */
-const props = defineProps<{ title?: string; desc?: string }>()
+/**
+ * 管理后台页面骨架：紧凑页头（22px 标题 + 13px 说明 + 右侧操作）、可选标签行、内容。
+ * wide：不限制最大宽度（主从布局等）。
+ */
+const props = defineProps<{ title?: string; desc?: string; wide?: boolean }>()
 const route = useRoute()
-const found = computed(() => {
-  for (const g of ADMIN_NAV) {
-    const it = g.items.find((i) => i.name === route.name)
-    if (it) return { group: g.group, item: it }
-  }
-  return null
-})
-const title = computed(() => props.title ?? found.value?.item.label ?? '管理后台')
-const desc = computed(() => props.desc ?? found.value?.item.desc ?? '')
+const found = computed(() => findAdminItem(route.name))
+const title = computed(() => props.title ?? found.value?.label ?? '管理后台')
+const desc = computed(() => props.desc ?? found.value?.desc ?? '')
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-[1680px] px-4 pt-5 pb-16 sm:px-6 lg:px-10 lg:pt-8">
-    <header class="mb-6 flex flex-wrap items-end gap-x-6 gap-y-4">
-      <div class="min-w-[min(100%,22rem)] flex-1">
-        <div class="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-slate-400">
-          <span>管理后台</span>
-          <template v-if="found?.group"><span aria-hidden="true">/</span><span>{{ found.group }}</span></template>
-        </div>
-        <h1 class="flex items-center gap-3 text-[28px] leading-9 font-bold tracking-tight text-white lg:text-[34px] lg:leading-[42px]">
-          <component :is="found.item.icon" v-if="found" class="hidden h-7 w-7 shrink-0 opacity-80 sm:block" />
-          {{ title }}
-        </h1>
-        <p v-if="desc" class="mt-1.5 max-w-3xl text-[15px] text-slate-400">{{ desc }}</p>
+  <div class="mx-auto w-full px-4 pt-6 pb-16 sm:px-6 lg:px-8" :class="wide ? 'max-w-none' : 'max-w-[1600px]'">
+    <header class="mb-5 flex flex-wrap items-start gap-x-6 gap-y-3">
+      <div class="min-w-[min(100%,20rem)] flex-1">
+        <h1 class="text-[22px] leading-8 font-bold tracking-tight text-white">{{ title }}</h1>
+        <p v-if="desc" class="mt-0.5 max-w-3xl text-[13px] leading-5 text-slate-400">{{ desc }}</p>
       </div>
       <div v-if="$slots.actions" class="flex flex-wrap items-center gap-2"><slot name="actions" /></div>
     </header>
+    <slot name="tabs" />
     <slot />
   </div>
 </template>

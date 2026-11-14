@@ -46,6 +46,8 @@ const props = withDefaults(
     sizes?: number[]
     /** 表体最大高度（如 '60vh'），设置后表头吸顶 */
     maxHeight?: string
+    /** 高亮的行（如当前在抽屉中查看的行） */
+    activeKey?: string | null
   }>(),
   {
     loading: false,
@@ -59,6 +61,7 @@ const props = withDefaults(
     bare: false,
     sizes: () => [10, 20, 50],
     maxHeight: undefined,
+    activeKey: null,
   },
 )
 const emit = defineEmits<{ rowClick: [row: T] }>()
@@ -235,7 +238,7 @@ const skeletonRows = computed(() => Math.min(effSize.value || 6, 8))
               v-for="(row, i) in visible"
               :key="keyOf(row, i)"
               class="dt-row"
-              :class="rowClickable ? 'cursor-pointer' : ''"
+              :class="[rowClickable ? 'cursor-pointer' : '', activeKey && keyOf(row, i) === activeKey ? 'dt-row-on' : '']"
               @click="rowClickable && emit('rowClick', row)"
             >
               <td v-for="c in columns" :key="c.key" :style="cellStyle(c)" :class="cellClass(c)">
