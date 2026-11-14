@@ -15,9 +15,9 @@ from __future__ import annotations
 
 from urllib.parse import urlsplit
 
-LABELS = {"official": "官方", "academic": "学术", "media": "权威媒体", "reference": "百科",
+LABELS = {"user_file": "你上传的文件", "official": "官方", "academic": "学术", "media": "权威媒体", "reference": "百科",
           "community": "社区/自媒体", "aggregate": "聚合/转载", "unknown": "一般网站"}
-SCORES = {"official": 5, "academic": 4, "media": 4, "reference": 3, "community": 2, "aggregate": 1, "unknown": 2}
+SCORES = {"user_file": 5, "official": 5, "academic": 4, "media": 4, "reference": 3, "community": 2, "aggregate": 1, "unknown": 2}
 
 _SUFFIX = [
     (("gov.cn", ".gov", ".gov.uk", ".gov.hk", ".gov.tw", ".mil", "europa.eu", "un.org", "who.int", "worldbank.org",

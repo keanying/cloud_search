@@ -226,6 +226,13 @@ def _toc(html: str) -> str:
     return html[:at] + f'<nav class="toc"><b>目录</b><ol>{items}</ol></nav>' + html[at:]
 
 
+def _ref_link(src: dict) -> str:
+    if src.get("access_method") == "user_file" or str(src.get("url", "")).startswith("file:"):
+        return "（用户上传的文件）"
+    u = _html.escape(src["url"])
+    return f'<a href="{u}">{u}</a>'
+
+
 def _cred_badge(src: dict) -> str:
     lab = src.get("credibility_label")
     if not lab:
@@ -243,7 +250,7 @@ def render_html(*, title: str, markdown: str, sources: list[dict], meta_line: st
             f'<li id="ref-{s["n"]}">[{s["n"]}] {_html.escape(s.get("title") or s["url"])}'
             f'{(" · " + _html.escape(s["site_name"])) if s.get("site_name") else ""}{_cred_badge(s)}'
             f'{(" · 发布 " + _html.escape(s["publish_time_text"])) if s.get("publish_time_text") else ""}<br>'
-            f'<a href="{_html.escape(s["url"])}">{_html.escape(s["url"])}</a>'
+            f'{_ref_link(s)}'
             f' <span>（读取于 {_html.escape(str(s.get("retrieved_time", ""))[:16].replace("T", " "))}）</span></li>'
             for s in sources)
         refs = f'<section class="refs"><h2>参考来源</h2><ol style="list-style:none;padding:0">{items}</ol></section>'

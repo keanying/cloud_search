@@ -22,6 +22,7 @@ class Worker:
         self.worker_id = worker_id or s.worker_id
         self.runs: set[asyncio.Task] = set()
         self.turns: set[asyncio.Task] = set()
+        self.parses: set[asyncio.Task] = set()
         self._stop = asyncio.Event()
 
     def stop(self) -> None:
@@ -42,6 +43,16 @@ class Worker:
             t = asyncio.create_task(process_turn(mid, self.worker_id), name=f"turn:{mid}")
             self.turns.add(t)
             t.add_done_callback(self.turns.discard)
+        from ..files.service import claim_parse, process_parse
+
+        while len(self.parses) < s.files_parse_concurrency:
+            fid = await claim_parse(self.worker_id)
+            if not fid:
+                break
+            got = True
+            t = asyncio.create_task(process_parse(fid, self.worker_id), name=f"parse:{fid}")
+            self.parses.add(t)
+            t.add_done_callback(self.parses.discard)
         while len(self.runs) < s.worker_max_tasks:
             claimed = await claim_run(self.worker_id)
             if not claimed:
@@ -72,8 +83,8 @@ class Worker:
 
     async def drain(self) -> None:
         """测试用：等待当前所有工作完成。"""
-        while self.runs or self.turns:
-            await asyncio.gather(*(self.runs | self.turns), return_exceptions=True)
+        while self.runs or self.turns or self.parses:
+            await asyncio.gather(*(self.runs | self.turns | self.parses), return_exceptions=True)
             await self.tick()
 
 

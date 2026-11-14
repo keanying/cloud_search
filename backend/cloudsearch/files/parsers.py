@@ -1,0 +1,443 @@
+"""文件解析：把上传的文件转成 Markdown。
+
+解析器（config.yaml 的 files.parser 选择，默认 auto）：
+- builtin       内置：PDF 文本层（pypdf）、Word（python-docx）、Excel/CSV（表格）、TXT/Markdown/HTML/JSON。
+                不做 OCR：扫描件、图片、PPT 需要 MinerU。
+- mineru_api    自部署 MinerU（推荐）：`mineru-kit file-parse-server` 的 POST /v1/file_parse（4.x，返回 zip），
+                兼容旧版 `mineru-api` 的 POST /file_parse（返回 JSON md_content）。
+- mineru_cloud  mineru.net 精准解析 API（需 Token；文件会上传到 mineru.net）。
+- mineru_agent  mineru.net 免登录轻量接口（≤10MB/20 页，按 IP 限流；文件会上传到 mineru.net，需显式选择）。
+- mineru_cli    本机 `mineru` 命令行（命令模板见 mineru.cli_command）。
+auto：表格与纯文本类文件总是内置解析（更快、数值不经 OCR）；其余按 自部署 → 云端(已配 Token) → 命令行 → 内置 的顺序。
+MinerU 不可用时，内置能解析的格式会自动回退到内置解析，并在解析说明里注明。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import csv
+import io
+import json
+import re
+import shutil
+import tempfile
+import time
+import zipfile
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from ..core.config import get_settings
+
+TEXT_EXT = {"txt", "md", "markdown", "json", "log", "xml", "yaml", "yml"}
+HTML_EXT = {"html", "htm"}
+TABLE_EXT = {"csv", "tsv", "xlsx", "xlsm"}
+PDF_EXT = {"pdf"}
+WORD_EXT = {"docx"}
+IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff", "jp2"}
+MINERU_ONLY_EXT = {"doc", "ppt", "pptx", "xls", "rtf", "odt", "ods", "odp", "epub", "ofd", "mhtml", "mht"} | IMAGE_EXT
+ALLOWED_EXT = TEXT_EXT | HTML_EXT | TABLE_EXT | PDF_EXT | WORD_EXT | MINERU_ONLY_EXT
+
+PARSER_LABELS = {"builtin": "内置解析", "mineru_api": "MinerU（自部署）", "mineru_cloud": "MinerU 云端",
+                 "mineru_agent": "MinerU 轻量接口", "mineru_cli": "MinerU 命令行"}
+
+
+class ParseError(Exception):
+    """解析失败（message 为给用户看的中文说明）。"""
+
+
+@dataclass
+class ParseResult:
+    markdown: str
+    parser: str
+    detail: str = ""
+    page_qty: int | None = None
+    image_qty: int = 0
+    notes: list[str] = field(default_factory=list)
+
+
+# ---------------------------------------------------------------- 内置解析
+def _decode(data: bytes) -> str:
+    for enc in ("utf-8-sig", "gb18030", "utf-16"):
+        try:
+            return data.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return data.decode("utf-8", "replace")
+
+
+def _md_table(rows: list[list], max_rows: int = 1000) -> tuple[str, bool]:
+    rows = [[("" if c is None else str(c)).replace("|", "\\|").replace("\n", " ").strip() for c in r] for r in rows]
+    rows = [r for r in rows if any(r)]
+    if not rows:
+        return "", False
+    width = max(len(r) for r in rows)
+    rows = [r + [""] * (width - len(r)) for r in rows]
+    cut = len(rows) - 1 > max_rows
+    body = rows[1:max_rows + 1]
+    lines = ["| " + " | ".join(rows[0]) + " |", "|" + "---|" * width] + ["| " + " | ".join(r) + " |" for r in body]
+    return "\n".join(lines), cut
+
+
+def _pdf(data: bytes) -> tuple[str, int]:
+    from pypdf import PdfReader
+
+    reader = PdfReader(io.BytesIO(data))
+    parts = []
+    for i, page in enumerate(reader.pages, 1):
+        try:
+            text = page.extract_text() or ""
+        except Exception:  # noqa: BLE001
+            text = ""
+        parts.append(f"〔第 {i} 页〕\n{text.strip()}")
+    return "\n\n".join(parts), len(reader.pages)
+
+
+def pdf_page_count(data: bytes) -> int | None:
+    try:
+        from pypdf import PdfReader
+
+        return len(PdfReader(io.BytesIO(data)).pages)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _docx(data: bytes) -> str:
+    from docx import Document
+
+    doc = Document(io.BytesIO(data))
+    out: list[str] = []
+    body = doc.element.body
+    tables = {t._tbl: t for t in doc.tables}
+    paras = {p._p: p for p in doc.paragraphs}
+    for child in body.iterchildren():
+        if child in paras:
+            p = paras[child]
+            text = p.text.strip()
+            if not text:
+                continue
+            style = (p.style.name or "").lower() if p.style is not None else ""
+            m = re.search(r"heading\s*(\d)|标题\s*(\d)", style)
+            if m:
+                level = int(m.group(1) or m.group(2))
+                out.append("#" * min(level + 1, 6) + " " + text)
+            elif "list" in style:
+                out.append("- " + text)
+            else:
+                out.append(text)
+        elif child in tables:
+            t = tables[child]
+            md, _ = _md_table([[c.text for c in row.cells] for row in t.rows])
+            if md:
+                out.append(md)
+    return "\n\n".join(out)
+
+
+def _xlsx(data: bytes) -> tuple[str, list[str]]:
+    from openpyxl import load_workbook
+
+    wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    out, notes = [], []
+    for ws in wb.worksheets:
+        rows = [list(r) for r in ws.iter_rows(values_only=True)]
+        md, cut = _md_table(rows)
+        if not md:
+            continue
+        out.append(f"## 工作表：{ws.title}\n\n{md}")
+        if cut:
+            notes.append(f"工作表「{ws.title}」超过 1000 行，只读取了前 1000 行")
+    return "\n\n".join(out), notes
+
+
+def _csv(data: bytes, delimiter: str) -> tuple[str, list[str]]:
+    text = _decode(data)
+    rows = list(csv.reader(io.StringIO(text), delimiter=delimiter))
+    md, cut = _md_table(rows)
+    return md, (["超过 1000 行，只读取了前 1000 行"] if cut else [])
+
+
+def _html(data: bytes) -> str:
+    import trafilatura
+
+    text = _decode(data)
+    return trafilatura.extract(text, output_format="markdown", include_tables=True) or ""
+
+
+def builtin_parse(data: bytes, ext: str) -> ParseResult:
+    notes: list[str] = []
+    pages = None
+    if ext in PDF_EXT:
+        md, pages = _pdf(data)
+        body = re.sub(r"〔第 \d+ 页〕", "", md)
+        if len(body.strip()) < max(60, 30 * pages):
+            raise ParseError("这个 PDF 几乎没有可提取的文字（可能是扫描件或图片版），需要配置 MinerU 才能识别。")
+    elif ext in WORD_EXT:
+        md = _docx(data)
+    elif ext in {"xlsx", "xlsm"}:
+        md, notes = _xlsx(data)
+    elif ext in {"csv", "tsv"}:
+        md, notes = _csv(data, "\t" if ext == "tsv" else ",")
+    elif ext in HTML_EXT:
+        md = _html(data)
+    elif ext in TEXT_EXT:
+        md = _decode(data)
+        if ext == "json":
+            try:
+                md = "```json\n" + json.dumps(json.loads(md), ensure_ascii=False, indent=1)[:400000] + "\n```"
+            except ValueError:
+                pass
+    elif ext in MINERU_ONLY_EXT:
+        kind = "图片" if ext in IMAGE_EXT else f".{ext} 文件"
+        raise ParseError(f"{kind}需要 MinerU 才能识别（内置解析只支持 PDF 文字版、Word、Excel/CSV 与文本）。"
+                         "请管理员在 config.yaml 配置 mineru.api_url 或 mineru.cloud_token。")
+    else:
+        raise ParseError(f"不支持的文件类型：.{ext}")
+    if not md.strip():
+        raise ParseError("没有从文件中读到文字内容。")
+    return ParseResult(markdown=md, parser="builtin", detail=PARSER_LABELS["builtin"], page_qty=pages, notes=notes)
+
+
+# ---------------------------------------------------------------- MinerU：结果整理
+_IMG = re.compile(r"!\[([^\]]*)\]\((?!https?:)[^)]*\)")
+
+
+def _clean_md(md: str) -> tuple[str, int]:
+    """去掉指向压缩包内图片的引用（模型看不到图片），保留图片说明文字。"""
+    n = 0
+
+    def repl(m: re.Match) -> str:
+        nonlocal n
+        n += 1
+        return f"〔图片{('：' + m.group(1)) if m.group(1).strip() else ''}〕"
+
+    return _IMG.sub(repl, md), n
+
+
+def _md_from_zip(data: bytes) -> tuple[str, int]:
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        names = [n for n in z.namelist() if n.lower().endswith(".md")]
+        if not names:
+            raise ParseError("MinerU 返回的结果里没有 Markdown 文件。")
+        pick = next((n for n in names if n.rsplit("/", 1)[-1] == "full.md"), None) or \
+            max(names, key=lambda n: z.getinfo(n).file_size)
+        md = _decode(z.read(pick))
+        images = sum(1 for n in z.namelist() if re.search(r"(^|/)images/.+\.(png|jpe?g|webp|gif|bmp)$", n, re.I))
+    clean, refs = _clean_md(md)
+    return clean, max(images, refs)
+
+
+def _client(timeout: float, **kw):
+    import httpx
+
+    return httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=15), follow_redirects=True, **kw)
+
+
+def _err(resp) -> str:
+    try:
+        j = resp.json()
+        e = j.get("error") or {}
+        return e.get("message") if isinstance(e, dict) else str(j.get("msg") or j.get("detail") or j)[:200]
+    except Exception:  # noqa: BLE001
+        return resp.text[:200]
+
+
+# ---------------------------------------------------------------- MinerU：自部署 HTTP
+async def mineru_api_parse(data: bytes, name: str, *, deadline: float) -> ParseResult:
+    s = get_settings()
+    base = (s.mineru_api_url or "").rstrip("/")
+    if not base:
+        raise ParseError("未配置 mineru.api_url")
+    headers = {"Authorization": f"Bearer {s.mineru_api_key}"} if s.mineru_api_key else {}
+    remaining = max(30.0, deadline - time.monotonic())
+    async with _client(remaining, headers=headers) as c:
+        form = {"tier": s.mineru_tier, "page_range": "all", "output_formats": "default",
+                "wait_timeout": str(int(min(3600, remaining)))}
+        r = await c.post(f"{base}/v1/file_parse", data=form, files={"file": (name, data)})
+        if r.status_code == 404:  # 旧版 mineru-api：POST /file_parse 返回 JSON
+            r = await c.post(f"{base}/file_parse", data={"return_md": "true", "lang_list": s.mineru_language},
+                             files={"files": (name, data)})
+            if r.status_code != 200:
+                raise ParseError(f"MinerU 服务返回 {r.status_code}：{_err(r)}")
+            res = (r.json().get("results") or {})
+            md = next((v.get("md_content") for v in res.values() if isinstance(v, dict) and v.get("md_content")), "")
+            if not md:
+                raise ParseError("MinerU 没有返回 Markdown 内容。")
+            clean, imgs = _clean_md(md)
+            return ParseResult(clean, "mineru_api", f"{PARSER_LABELS['mineru_api']} · 旧版接口", image_qty=imgs)
+        if r.status_code == 202:  # 超过等待时间：轮询结果地址
+            info = r.json()
+            result_url = info.get("result_url") or f"/v1/file_parse/{info.get('request_id')}/result"
+            if result_url.startswith("/"):
+                result_url = base + result_url
+            while True:
+                if time.monotonic() > deadline:
+                    raise ParseError("MinerU 解析超时。")
+                await asyncio.sleep(3)
+                r = await c.get(result_url)
+                if r.status_code == 200:
+                    break
+                if r.status_code not in (202, 409):
+                    raise ParseError(f"MinerU 解析失败：{_err(r)}")
+        if r.status_code != 200:
+            raise ParseError(f"MinerU 服务返回 {r.status_code}：{_err(r)}")
+        md, imgs = _md_from_zip(r.content)
+    return ParseResult(md, "mineru_api", f"{PARSER_LABELS['mineru_api']} · {s.mineru_tier}", image_qty=imgs)
+
+
+# ---------------------------------------------------------------- MinerU：mineru.net 精准解析
+CLOUD_BASE = "https://mineru.net"
+
+
+async def mineru_cloud_parse(data: bytes, name: str, *, deadline: float, data_id: str = "") -> ParseResult:
+    s = get_settings()
+    if not s.mineru_cloud_token:
+        raise ParseError("未配置 mineru.cloud_token")
+    auth = {"Authorization": f"Bearer {s.mineru_cloud_token}"}
+    async with _client(120) as c:
+        r = await c.post(f"{CLOUD_BASE}/api/v4/file-urls/batch", headers=auth, json={
+            "files": [{"name": name, "data_id": data_id or name[:64]}], "model_version": s.mineru_cloud_model,
+            "language": s.mineru_language, "enable_formula": True, "enable_table": True})
+        j = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+        if r.status_code != 200 or j.get("code") != 0:
+            raise ParseError(f"MinerU 云端拒绝了请求：{j.get('msg') or _err(r)}")
+        batch_id, url = j["data"]["batch_id"], j["data"]["file_urls"][0]
+        up = await c.put(url, content=data)  # 预签名地址，不设置 Content-Type
+        if up.status_code not in (200, 201):
+            raise ParseError(f"上传到 MinerU 云端失败（HTTP {up.status_code}）")
+        while True:
+            if time.monotonic() > deadline:
+                raise ParseError("MinerU 云端解析超时。")
+            await asyncio.sleep(4)
+            r = await c.get(f"{CLOUD_BASE}/api/v4/extract-results/batch/{batch_id}", headers=auth)
+            items = ((r.json().get("data") or {}).get("extract_result") or []) if r.status_code == 200 else []
+            if not items:
+                continue
+            it = items[0]
+            if it.get("state") == "failed":
+                raise ParseError(f"MinerU 云端解析失败：{it.get('err_msg') or '未知原因'}")
+            if it.get("state") == "done" and it.get("full_zip_url"):
+                z = await c.get(it["full_zip_url"])
+                md, imgs = _md_from_zip(z.content)
+                return ParseResult(md, "mineru_cloud", f"{PARSER_LABELS['mineru_cloud']} · {s.mineru_cloud_model}",
+                                   image_qty=imgs)
+
+
+async def mineru_agent_parse(data: bytes, name: str, *, deadline: float) -> ParseResult:
+    """mineru.net 免登录轻量接口（≤10MB/20 页，IP 限流）。"""
+    if len(data) > 10 * 1024 * 1024:
+        raise ParseError("MinerU 轻量接口只支持 10MB 以内的文件。")
+    async with _client(120) as c:
+        r = await c.post(f"{CLOUD_BASE}/api/v1/agent/parse/file", json={"file_name": name})
+        if r.status_code == 429:
+            raise ParseError("MinerU 轻量接口请求过于频繁（按 IP 限流），请稍后重试或配置 Token。")
+        j = r.json()
+        d = j.get("data") or j
+        task_id, url = d.get("task_id"), d.get("file_url")
+        if not task_id or not url:
+            raise ParseError(f"MinerU 轻量接口返回异常：{str(j)[:160]}")
+        up = await c.put(url, content=data)
+        if up.status_code not in (200, 201):
+            raise ParseError(f"上传到 MinerU 失败（HTTP {up.status_code}）")
+        while True:
+            if time.monotonic() > deadline:
+                raise ParseError("MinerU 解析超时。")
+            await asyncio.sleep(3)
+            r = await c.get(f"{CLOUD_BASE}/api/v1/agent/parse/{task_id}")
+            d = (r.json().get("data") or r.json()) if r.status_code == 200 else {}
+            state = str(d.get("state") or d.get("status") or "")
+            if state in ("failed", "error"):
+                raise ParseError(f"MinerU 解析失败：{d.get('err_msg') or d.get('message') or '未知原因'}")
+            if d.get("markdown_url"):
+                md = (await c.get(d["markdown_url"])).text
+                clean, imgs = _clean_md(md)
+                return ParseResult(clean, "mineru_agent", PARSER_LABELS["mineru_agent"], image_qty=imgs)
+
+
+# ---------------------------------------------------------------- MinerU：本机命令行
+def cli_available() -> bool:
+    cmd = get_settings().mineru_cli_command
+    return bool(cmd) and shutil.which(cmd[0]) is not None
+
+
+async def mineru_cli_parse(data: bytes, name: str, *, deadline: float) -> ParseResult:
+    cmd = get_settings().mineru_cli_command
+    if not cli_available():
+        raise ParseError(f"没有找到 MinerU 命令行（{cmd[0] if cmd else '未配置'}）")
+    with tempfile.TemporaryDirectory(prefix="cs-mineru-") as tmp:
+        src = Path(tmp) / ("input" + Path(name).suffix.lower())
+        src.write_bytes(data)
+        out_dir = Path(tmp) / "out"
+        out_dir.mkdir()
+        out_md = out_dir / "output.md"
+        args = [a.format(input=str(src), output=str(out_md), output_dir=str(out_dir)) for a in cmd]
+        proc = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE,
+                                                    stderr=asyncio.subprocess.PIPE)
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), max(30.0, deadline - time.monotonic()))
+        except TimeoutError:
+            proc.kill()
+            raise ParseError("MinerU 命令行解析超时。") from None
+        if proc.returncode != 0:
+            raise ParseError(f"MinerU 命令行出错：{_decode(stderr or b'').strip()[-300:]}")
+        mds = [out_md] if out_md.exists() else sorted(out_dir.rglob("*.md"), key=lambda p: p.stat().st_size)
+        md = mds[-1].read_text(encoding="utf-8", errors="replace") if mds else _decode(stdout or b"")
+        if not md.strip():
+            raise ParseError("MinerU 命令行没有输出内容。")
+        clean, imgs = _clean_md(md)
+        imgs = max(imgs, len(list(out_dir.rglob("images/*"))))
+    return ParseResult(clean, "mineru_cli", PARSER_LABELS["mineru_cli"], image_qty=imgs)
+
+
+# ---------------------------------------------------------------- 选择解析器
+def candidates(ext: str) -> list[str]:
+    """该格式按顺序尝试的解析器。"""
+    s = get_settings()
+    choice = s.files_parser
+    builtin_ok = ext not in MINERU_ONLY_EXT
+    if choice != "auto":
+        order = [choice]
+    elif ext in TABLE_EXT | TEXT_EXT | HTML_EXT:
+        order = ["builtin"]  # 表格/文本不需要版面识别，内置解析更快、数值不经 OCR
+    else:
+        order = []
+        if s.mineru_api_url:
+            order.append("mineru_api")
+        if s.mineru_cloud_token:
+            order.append("mineru_cloud")
+        if cli_available():
+            order.append("mineru_cli")
+    if builtin_ok and "builtin" not in order:
+        order.append("builtin")  # MinerU 不可用时的兜底
+    return order or ["builtin"]
+
+
+async def parse_bytes(data: bytes, name: str, ext: str, *, data_id: str = "") -> ParseResult:
+    s = get_settings()
+    deadline = time.monotonic() + s.files_parse_timeout_s
+    errors: list[str] = []
+    for p in candidates(ext):
+        try:
+            if p == "builtin":
+                res = await asyncio.to_thread(builtin_parse, data, ext)
+            elif p == "mineru_api":
+                res = await mineru_api_parse(data, name, deadline=deadline)
+            elif p == "mineru_cloud":
+                res = await mineru_cloud_parse(data, name, deadline=deadline, data_id=data_id)
+            elif p == "mineru_agent":
+                res = await mineru_agent_parse(data, name, deadline=deadline)
+            elif p == "mineru_cli":
+                res = await mineru_cli_parse(data, name, deadline=deadline)
+            else:
+                raise ParseError(f"未知的解析器：{p}（files.parser 可选 auto/builtin/mineru_api/mineru_cloud/"
+                                 "mineru_cli/mineru_agent）")
+        except ParseError as e:
+            errors.append(f"{PARSER_LABELS.get(p, p)}：{e}")
+            continue
+        except Exception as e:  # noqa: BLE001 —— 网络不通等
+            errors.append(f"{PARSER_LABELS.get(p, p)}：{type(e).__name__} {str(e)[:160]}")
+            continue
+        if res.page_qty is None and ext in PDF_EXT:
+            res.page_qty = pdf_page_count(data)
+        if errors:  # 前面的解析器失败、回退成功
+            res.notes.insert(0, "；".join(errors) + "，已改用" + PARSER_LABELS.get(res.parser, res.parser))
+        return res
+    raise ParseError("；".join(errors) or "无法解析该文件")

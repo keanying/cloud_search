@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import text
 
-from .api.routers import admin, admin_llm, artifacts, auth, conversations, tasks, viewer
+from .api.routers import admin, admin_llm, artifacts, files, auth, conversations, tasks, viewer
 from .core.config import get_settings
 from .db.base import dispose_engine, get_engine, session_scope
 from .db.migrate import auto_migrate
@@ -59,7 +59,7 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app = FastAPI(title="云搜浏览器 API", version="0.1.0", lifespan=lifespan)
     for r in (auth.router, conversations.router, tasks.router, viewer.router, artifacts.router, admin_llm.router,
-              admin.router):
+              admin.router, files.router):
         app.include_router(r, prefix="/api/v1")
 
     @app.get("/api/health")

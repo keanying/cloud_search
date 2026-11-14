@@ -9,7 +9,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..agents.coordinator import STAGE_LABELS, stages_for
+from ..agents.coordinator import STAGE_LABELS, stages_for_spec
 from ..db.base import is_mysql, session_scope
 from ..db.models import Task
 from ..services.events import publish_message, publish_task, task_output_messages, upsert_part
@@ -21,8 +21,7 @@ _locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 
 def task_stages(t: Task) -> list[str]:
-    ds = (t.task_spec or {}).get("dataset") or {}
-    return stages_for(t.mode, has_analysis=bool(ds.get("analysis_request")))
+    return stages_for_spec({**(t.task_spec or {}), "mode": t.mode})
 
 
 def build_progress_part(t: Task) -> dict[str, Any]:

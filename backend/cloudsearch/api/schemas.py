@@ -88,8 +88,9 @@ class ConversationList(BaseModel):
 
 class MessageIn(BaseModel):
     client_message_id: str = Field(min_length=8, max_length=64, description="客户端生成的幂等ID（UUID）")
-    text: str = Field(min_length=1, max_length=20000)
+    text: str = Field(default="", max_length=20000)
     mode_selection: ModeSelection = "auto"
+    file_ids: list[str] = Field(default_factory=list, max_length=20, description="随消息发送的已上传文件")
 
 
 class MessageOut(BaseModel):

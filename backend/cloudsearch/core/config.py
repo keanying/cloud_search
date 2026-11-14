@@ -201,6 +201,24 @@ class Settings(BaseSettings):
     # 研究类任务“反思→补查”的最多轮数（数据任务最多 1 轮；简答不补查）
     task_max_extra_waves: int = 2
 
+    # 上传文件（对话中的附件）：解析为 Markdown 后作为可引用的来源参与问答与分析
+    files_max_mb: int = 100
+    files_max_per_message: int = 10
+    # 解析器：auto（按 MinerU 自部署 → MinerU 云端 → MinerU 命令行 → 内置 的顺序选可用的）/ builtin /
+    # mineru_api / mineru_cloud / mineru_cli / mineru_agent（mineru.net 免登录轻量接口，文件会上传到 mineru.net）
+    files_parser: str = "auto"
+    files_parse_concurrency: int = 2
+    files_parse_timeout_s: int = 1800
+
+    # MinerU 多模态文档解析（PDF/扫描件/图片/Office → Markdown，含表格、公式、版面）
+    mineru_api_url: str | None = None  # 自部署服务地址，如 http://127.0.0.1:8003（mineru-kit file-parse-server）
+    mineru_api_key: str | None = None  # 自部署服务前若有网关鉴权，填 Bearer token
+    mineru_tier: str = "standard"  # flash / basic / standard / advanced（MinerU 4.x）
+    mineru_cloud_token: str | None = None  # mineru.net 精准解析 API 的 Token（填写即表示同意把文件发送到 mineru.net）
+    mineru_cloud_model: str = "vlm"  # pipeline / vlm
+    mineru_language: str = "ch"
+    mineru_cli_command: list[str] = ["mineru", "parse", "{input}", "-o", "{output}", "--pages", "all"]
+
     # worker（embedded=true 时嵌入 API 进程，单进程即可运行；生产建议独立 worker）
     embedded_worker: bool = True
     worker_id: str = Field(default_factory=lambda: f"worker-{os.getpid()}")

@@ -55,8 +55,10 @@ def normalize_decision(d: IntentDecision, mode_selection: str) -> IntentDecision
 
 
 async def compile_turn(*, user_text: str, mode_selection: str, history: list[tuple[str, str]],
-                       pending_spec_json: str | None, conversation_id: str | None) -> IntentDecision:
+                       pending_spec_json: str | None, conversation_id: str | None, attachments: str = "",
+                       new_file_ids: list[str] | None = None) -> IntentDecision:
     prompt = build_prompt(user_text=user_text, mode_selection=mode_selection, history=history,
-                          pending_spec_json=pending_spec_json, today=date.today().isoformat())
+                          pending_spec_json=pending_spec_json, today=date.today().isoformat(),
+                          attachments=attachments, new_file_ids=new_file_ids)
     decision = await run_agent(SPEC, prompt, conversation_id=conversation_id)
     return normalize_decision(decision, mode_selection)

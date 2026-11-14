@@ -26,6 +26,14 @@ task_spec.mode 选择：
   需要新的事实、更新的数据或上一轮没覆盖的方面：kind=task，可在 scope.include_domains 里沿用上一轮可信的来源站点。
 - 用户的语言：用户用什么语言提问，scope.language 与 reply 就用什么语言（默认简体中文）。
 
+上传的文件（见“对话中的文件”）：
+- 用户提问涉及文件（总结、问答、提取数据、分析、对比、改写成报告）时：kind=task，把相关文件的 ID 写入 scope.file_ids。
+  只问文件内容 → scope.use_web=false（不联网，答案只来自文件）；要结合网上资料（核实、补充最新信息、与公开数据对比）→ use_web=true。
+- 模式：问答/总结/解释 → quick_search；深度分析报告 → research；从文件里提取表格/清单 → dataset（给出 dataset.entity 与 fields）；
+  提取数据并分析 → hybrid。
+- 不要假装已经读过文件；回答会在读取文件后给出，reply 里一句话说明要做什么即可。
+- 文件“解析失败”时，在 reply 里如实说明，并建议重新上传或换格式。
+
 needs_confirmation：数据采集字段需要用户确认、范围很大、或用户意图不确定时为 true；清晰的简单问题为 false。
 plan_steps：用 3-6 条通俗的中文步骤描述将要做什么，不要出现技术术语。
 reply 用简体中文，语气自然简洁，不要声称已经完成搜索或已得到结果。
@@ -33,8 +41,13 @@ reply 用简体中文，语气自然简洁，不要声称已经完成搜索或�
 
 
 def build_prompt(*, user_text: str, mode_selection: str, history: list[tuple[str, str]],
-                 pending_spec_json: str | None, today: str) -> str:
+                 pending_spec_json: str | None, today: str, attachments: str = "", new_file_ids: list[str] | None = None
+                 ) -> str:
     lines = [f"今天日期：{today}", f"用户选择的模式：{mode_selection}（auto 表示由你判断）"]
+    if attachments:
+        lines.append("对话中的文件（[ID] 名称，状态，大纲/开头）：\n" + attachments)
+        if new_file_ids:
+            lines.append("本条消息随附的文件：" + "、".join(new_file_ids))
     if history:
         lines.append("最近对话（旧→新）：")
         recent = history[-12:]

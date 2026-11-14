@@ -394,3 +394,36 @@ class SystemSetting(Base, TimestampMixin):
     setting_key: Mapped[str] = mapped_column(String(64), primary_key=True, comment="参数键，如 search_engines")
     setting_value: Mapped[Any] = mapped_column(JSON, comment="参数值（JSON）")
     updated_by_id: Mapped[str | None] = mapped_column(ID, comment="最后修改人")
+
+
+# ---------------------------------------------------------------- 上传文件
+class UploadedFile(Base, TimestampMixin):
+    __tablename__ = "src_opr_file_f"
+    __table_args__ = (Index("ix_file_conv", "conversation_id"), Index("ix_file_parse", "parse_status", "created_time"),
+                      {"comment": "用户在对话中上传的文件；解析为 Markdown 后作为来源参与问答与分析"})
+    file_id: Mapped[str] = mapped_column(ID, primary_key=True)
+    project_id: Mapped[str] = mapped_column(ID)
+    user_id: Mapped[str] = mapped_column(ID)
+    conversation_id: Mapped[str | None] = mapped_column(ID)
+    message_id: Mapped[str | None] = mapped_column(ID, comment="随哪条用户消息发送（发送前为空）")
+    display_name: Mapped[str] = mapped_column(String(256))
+    mime_name: Mapped[str] = mapped_column(String(128))
+    ext_name: Mapped[str] = mapped_column(String(16))
+    byte_qty: Mapped[int] = mapped_column(BIGINT)
+    content_hash: Mapped[str] = mapped_column(String(64))
+    storage_ref: Mapped[str] = mapped_column(String(512))
+    parse_status: Mapped[str] = mapped_column(ENUM, default="queued", comment="queued/parsing/parsed/failed")
+    parser_name: Mapped[str | None] = mapped_column(String(32), comment="builtin/mineru_api/mineru_cloud/...")
+    parse_detail: Mapped[str | None] = mapped_column(String(256), comment="给用户看的解析说明")
+    parse_error: Mapped[str | None] = mapped_column(Text)
+    page_qty: Mapped[int | None] = mapped_column(Integer)
+    char_qty: Mapped[int | None] = mapped_column(Integer)
+    table_qty: Mapped[int | None] = mapped_column(Integer)
+    image_qty: Mapped[int | None] = mapped_column(Integer)
+    markdown_ref: Mapped[str | None] = mapped_column(String(512))
+    outline: Mapped[list[Any] | None] = mapped_column(JSON, comment="标题大纲（≤40 条）")
+    preview_text: Mapped[str | None] = mapped_column(Text, comment="开头约 600 字，供需求编译了解文件内容")
+    worker_id: Mapped[str | None] = mapped_column(String(64))
+    lease_expire_time: Mapped[datetime | None] = mapped_column(DT)
+    attempt_qty: Mapped[int] = mapped_column(Integer, default=0)
+    file_status: Mapped[str] = mapped_column(ENUM, default="active", comment="active/deleted")

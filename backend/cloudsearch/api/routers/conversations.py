@@ -109,7 +109,12 @@ async def list_messages(conversation_id: str, u: CurrentUser = Depends(current_u
 async def send_message(conversation_id: str, body: MessageIn, response: Response,
                        u: CurrentUser = Depends(current_user), s: AsyncSession = Depends(get_session)):
     c = await get_conversation(s, u, conversation_id)
-    req_hash = sha256_json({"text": body.text, "mode": body.mode_selection})
+    body.text = body.text.strip()
+    file_ids = list(dict.fromkeys(body.file_ids))
+    if not body.text and not file_ids:
+        raise HTTPException(422, "消息不能为空")
+    req_hash = sha256_json({"text": body.text, "mode": body.mode_selection, "files": file_ids} if file_ids
+                           else {"text": body.text, "mode": body.mode_selection})
     # 幂等：同会话同 client_message_id → 返回原消息；内容不同 → 409
     existing = (await s.execute(select(Message).where(Message.conversation_id == conversation_id,
                                                       Message.client_message_id == body.client_message_id))).scalar()
@@ -123,15 +128,30 @@ async def send_message(conversation_id: str, body: MessageIn, response: Response
         response.status_code = 200
         return SendMessageOut(user_message=await message_out(s, existing),
                               assistant_message=await message_out(s, reply), deduplicated=True)
+    from ...db.models import UploadedFile
+    from ...files.service import file_part
+
+    files = []
+    for fid in file_ids:
+        f = await s.get(UploadedFile, fid)
+        if f is None or f.conversation_id != conversation_id or f.user_id != u.user_id or f.file_status != "active":
+            raise HTTPException(422, "附件不存在或不属于这个对话")
+        if f.message_id:
+            raise HTTPException(409, f"{f.display_name} 已随其他消息发送")
+        files.append(f)
     turn_id = new_id("turn")
     now = utcnow()
+    text = body.text or "请阅读并总结我上传的文件"
     user_msg = Message(message_id=new_id("msg"), conversation_id=conversation_id, project_id=c.project_id,
                        turn_id=turn_id, role="user", client_message_id=body.client_message_id, request_hash=req_hash,
                        mode_selection=body.mode_selection, message_status="final", created_time=now,
-                       parts=[{"type": "text", "part_id": "text", "text": body.text, "citations": []}])
+                       parts=[{"type": "text", "part_id": "text", "text": text, "citations": []},
+                              *[file_part(f) for f in files]])
     reply = Message(message_id=new_id("msg"), conversation_id=conversation_id, project_id=c.project_id,
                     turn_id=turn_id, role="assistant", message_status="pending", parts=[], created_time=now)
     s.add_all([user_msg, reply])
+    for f in files:
+        f.message_id = user_msg.message_id
     c.updated_time = now
     await publish_message(s, user_msg, created=True)
     await publish_message(s, reply, created=True)

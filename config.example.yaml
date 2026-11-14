@@ -84,6 +84,37 @@ task:
   max_llm_requests: 60          # 最多模型请求次数（防止费用失控）
   max_extra_waves: 2            # 研究类任务按子问题评估覆盖后针对缺口补查的最多轮数（数据任务最多 1 轮）
 
+# ---------------------------------------------------------------- 上传文件
+# 对话里可以上传文件（PDF、Word、Excel/CSV、PPT、图片、TXT/Markdown/HTML 等），解析成 Markdown 后作为可引用的来源，
+# 用于文件问答、总结、提取表格、结合网上资料核对等。长文档会按章节/页码拆成多个来源，引用会标到具体部分。
+files:
+  max_mb: 100                   # 单个文件大小上限
+  max_per_message: 10           # 一条消息最多附带的文件数
+  # 解析器：auto（推荐）/ builtin / mineru_api / mineru_cloud / mineru_cli / mineru_agent
+  #   auto：表格与文本类文件用内置解析；PDF/图片/Office 按 MinerU 自部署 → MinerU 云端（配了 Token 才用）→ MinerU 命令行 → 内置 的顺序选择，
+  #         MinerU 不可用时能内置解析的格式会自动回退（扫描件、图片、PPT 没有兜底，需要 MinerU）。
+  #   mineru_agent：mineru.net 免登录轻量接口（≤10MB/20 页，按 IP 限流），文件会上传到 mineru.net，只在显式选择时使用。
+  parser: auto
+  parse_concurrency: 2          # 每个 worker 同时解析的文件数
+  parse_timeout_s: 1800         # 单个文件解析超时（大 PDF 走 MinerU 可能需要几分钟）
+
+# ---------------------------------------------------------------- MinerU 多模态文档解析
+# MinerU（opendatalab/MinerU）把 PDF、扫描件、图片、Office 文档解析成带表格/公式/版面结构的 Markdown。三种接入方式任选：
+# 1) 自部署服务（推荐，文件不出内网）：另一台机器或本机安装 MinerU 4.x 后启动
+#      uv pip install -U "mineru>=4.0,<5"
+#      mineru-kit file-parse-server --host 0.0.0.0 --port 8003      # 提供 POST /v1/file_parse
+#    然后填 api_url。也兼容旧版 `mineru-api`（POST /file_parse）。CPU 即可运行，有 GPU 更快。
+# 2) mineru.net 云端精准解析：在 mineru.net 申请 API Token 填到 cloud_token（单文件 ≤200MB/200 页；文件会发送到 mineru.net）。
+# 3) 本机命令行：本机已安装 MinerU 时，按 cli_command 调用（{input}/{output}/{output_dir} 会被替换）。
+mineru:
+  api_url:                      # 例：http://127.0.0.1:8003
+  api_key:                      # 自部署服务前有网关鉴权时填写（Bearer）
+  tier: standard                # flash / basic / standard / advanced（越高越准、越慢）
+  cloud_token:                  # mineru.net API Token；留空则不使用云端
+  cloud_model: vlm              # pipeline / vlm
+  language: ch                  # 文档主要语言（OCR 用）
+  cli_command: [mineru, parse, "{input}", -o, "{output}", --pages, all]
+
 # ---------------------------------------------------------------- 后台执行器
 worker:
   embedded: true                # true：执行器嵌在 API 进程内（单进程，适合开发/小规模）

@@ -397,6 +397,24 @@ def _static_config() -> list[dict]:
             {"label": "无头模式", "value": "是" if st.browser_headless else "否（显示窗口）"},
             {"label": "代理", "value": mask_url(st.browser_proxy) if st.browser_proxy else "未设置（直连）"},
             {"label": "语言区域", "value": st.browser_locale}]},
+        {"group": "文件解析", "items": _parser_items(st, mask_url)},
+    ]
+
+
+def _parser_items(st, mask_url) -> list[dict]:
+    from ...files.parsers import cli_available
+
+    mineru = []
+    if st.mineru_api_url:
+        mineru.append(f"自部署 {mask_url(st.mineru_api_url)}（{st.mineru_tier}）")
+    if st.mineru_cloud_token:
+        mineru.append(f"mineru.net 云端（{st.mineru_cloud_model}）")
+    if cli_available():
+        mineru.append("本机命令行")
+    return [
+        {"label": "解析器", "value": st.files_parser},
+        {"label": "MinerU", "value": "、".join(mineru) or "未配置（扫描件、图片、PPT 无法识别）"},
+        {"label": "单文件上限", "value": f"{st.files_max_mb} MB"},
     ]
 
 

@@ -59,6 +59,12 @@ class Scope(BaseModel):
     time_range: str | None = None
     region: str | None = None
     language: str = "zh"
+    file_ids: list[str] = Field(default_factory=list, description="作为来源使用的上传文件 ID（从“对话中的文件”里选）")
+    use_web: bool | None = Field(default=None, description="是否联网搜索。只基于文件回答时为 false；"
+                                                           "需要结合网上资料（核实、补充、对比）时为 true；留空则有文件时不联网")
+
+    def web_enabled(self) -> bool:
+        return self.use_web if self.use_web is not None else not self.file_ids
 
 
 class Limits(BaseModel):

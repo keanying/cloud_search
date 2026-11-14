@@ -28,6 +28,7 @@ SCHEMA_MARKERS: list[tuple[str, callable]] = [
      {c["name"] for c in insp.get_columns("src_opr_llm_model_f")}),
     ("57f4cb6bf707", lambda insp: "handoff_state" in {c["name"] for c in insp.get_columns("src_opr_browser_session_f")}),
     ("b3c1d9a7e2f4", lambda insp: insp.has_table("src_opr_system_setting_f")),
+    ("d5e8f1a2b3c4", lambda insp: insp.has_table("src_opr_file_f")),
 ]
 
 

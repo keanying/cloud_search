@@ -84,10 +84,22 @@ async def process_turn(message_id: str, worker_id: str) -> None:
         user_text = message_text(user_msg)
         mode = user_msg.mode_selection or "auto"
         project_id, user_id, conv_id = conv.project_id, conv.user_id, conv.conversation_id
+        from ..db.models import UploadedFile
+        from ..files.service import describe_for_compiler
+
+        conv_files = (await s.execute(select(UploadedFile).where(
+            UploadedFile.conversation_id == conv_id, UploadedFile.file_status == "active",
+            UploadedFile.message_id.is_not(None)).order_by(UploadedFile.created_time))).scalars().all()
+        attachments = describe_for_compiler(list(conv_files)[-12:])
+        usable = {f.file_id for f in conv_files if f.parse_status != "failed"}
+        new_files = [f.file_id for f in conv_files if f.message_id == user_msg.message_id]
 
     try:
         decision = await compile_turn(user_text=user_text, mode_selection=mode, history=history,
-                                      pending_spec_json=pending_json, conversation_id=conv_id)
+                                      pending_spec_json=pending_json, conversation_id=conv_id,
+                                      attachments=attachments, new_file_ids=new_files)
+        decision = apply_file_rules(decision, user_text=user_text, usable=usable,
+                                    new_files=[f for f in new_files if f in usable], mode=mode)
     except LlmNotConfigured as e:
         await _fail(message_id, "llm_not_configured", f"{e}。管理员配置后重新发送即可。")
         return
@@ -124,6 +136,29 @@ async def process_turn(message_id: str, worker_id: str) -> None:
         await publish_message(s, assistant)
         if task is not None:
             await project_task(s, task, task_event="created")
+
+
+def apply_file_rules(decision, *, user_text: str, usable: set[str], new_files: list[str], mode: str):
+    """附件的确定性规则：只引用本对话里可用的文件；本条消息带了文件却被判为闲聊时，改为基于文件回答。"""
+    from ..contracts import Scope, TaskSpec
+
+    if decision.kind == "task" and decision.task_spec is not None:
+        sc = decision.task_spec.scope
+        sc.file_ids = [f for f in dict.fromkeys(sc.file_ids) if f in usable]
+        if not sc.file_ids and new_files:
+            sc.file_ids = list(new_files)
+        return decision
+    if decision.kind == "chat" and new_files:
+        title = (user_text or "文件问答")[:40]
+        decision.kind = "task"
+        decision.task_spec = TaskSpec(
+            mode=mode if mode in ("quick_search", "research") else "quick_search", title=title,
+            requirement_text=user_text or "阅读并总结上传的文件",
+            scope=Scope(questions=[user_text or "这些文件的主要内容是什么？"], file_ids=list(new_files)))
+        decision.needs_confirmation = False
+        decision.plan_steps = decision.plan_steps or ["读取并解析文件", "找出与问题相关的内容", "核对原文出处", "给出带出处的回答"]
+        decision.reply = "好的，我先读一下你上传的文件。"
+    return decision
 
 
 async def _fail(message_id: str, code: str, text: str) -> None:

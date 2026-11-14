@@ -49,12 +49,14 @@ class SourceInfo:
     content_ref: str
     text: str | None = None
     credibility: str = "unknown"
+    file_id: str | None = None
 
     def public(self) -> dict[str, Any]:
         return {"n": self.n, "source_revision_id": self.source_revision_id, "url": self.url, "title": self.title,
                 "site_name": self.site_name, "publish_time_text": self.publish_time_text,
                 "retrieved_time": self.retrieved_time, "access_method": self.access_method,
-                "credibility": self.credibility, "credibility_label": credibility.LABELS[self.credibility]}
+                "credibility": self.credibility, "credibility_label": credibility.LABELS[self.credibility],
+                "file_id": self.file_id}
 
 
 @dataclass
@@ -102,6 +104,7 @@ class Pipeline:
         self.coverage_missing: list[str] = []
         self._next_n = 1
         self._llm_sem = asyncio.Semaphore(LLM_CONCURRENCY)
+        self.file_failures: list[dict] = []
         self.storage = get_storage()
 
     # ------------------------------------------------------------ 进度
@@ -114,55 +117,10 @@ class Pipeline:
     # ------------------------------------------------------------ 主流程
     async def run(self) -> PipelineOutcome:
         await self._init_next_n()
-        await self._stage("plan")
-        planned = await self.ctx.step("plan", self._plan_fn, agent_role="search_planner",
-                                      input_json={"limits": self.spec.limits.model_dump()})
-        self.intent = planned.get("intent") or self.spec.requirement_text
-        self.preferred_sources = planned.get("preferred_sources", [])
-        self.sub_questions = planned.get("sub_questions") or list(self.spec.scope.questions) or [self.spec.requirement_text]
-        self.key_entities = planned.get("key_entities", [])
-        queries = [self._as_query(q) for q in planned["queries"]]
-        await self._stage("plan", "done", queries=len(queries))
-
-        pool = get_pool()
-        settings = get_settings()
-        async with AsyncExitStack() as stack:
-            sessions = []
-
-            async def get_sessions(n: int):
-                while len(sessions) < n:
-                    sessions.append(await stack.enter_async_context(pool.session(
-                        project_id=self.ctx.project_id, task_id=self.ctx.task_id, run_id=self.ctx.run_id,
-                        worker_id=self.ctx.worker_id, label=f"会话{len(sessions) + 1}")))
-                    if len(sessions) == 1:
-                        await update_progress(self.ctx.task_id, browser_available=True)
-                return sessions[:n]
-
-            await self._wave(1, queries, self.spec.limits.max_sources, get_sessions, settings.task_read_concurrency)
-
-            if "coverage" in self.stages:
-                # 规划 → 搜索 → 反思（按子问题评估覆盖）→ 针对缺口补查，最多 max_waves 轮
-                await self._stage("coverage")
-                max_waves = settings.task_max_extra_waves if self.spec.mode in ("research", "hybrid") else \
-                    min(1, settings.task_max_extra_waves)
-                did_extra = False
-                for w in range(1, max_waves + 1):
-                    if not self.sources:
-                        break
-                    review = await self.ctx.step(f"coverage:w{w}", lambda c, w=w: self._coverage_fn(c, w, max_waves),
-                                                 agent_role="coordinator")
-                    self.coverage_missing = review.get("missing_aspects", [])
-                    extra = review["extra_queries"]
-                    if not extra:
-                        break
-                    did_extra = True
-                    await self._inc(queries=len(extra))
-                    extra_limit = min(4, max(2, self.spec.limits.max_sources // 2))
-                    await self._wave(w + 1, [self._as_query(q) for q in extra], extra_limit, get_sessions,
-                                     settings.task_read_concurrency)
-                    await self._stage("coverage")
-                await self._stage("coverage", "done" if did_extra else "skipped")
-        await update_progress(self.ctx.task_id, browser_available=True)  # 会话已关闭，保留最后帧供查看
+        if "files" in self.stages:
+            await self._files_phase()
+        if "plan" in self.stages:
+            await self._web_phase()
 
         outcome = PipelineOutcome(technical_failures=self.failed)
         if not self.sources:
@@ -170,8 +128,12 @@ class Pipeline:
                 await self._stage(st, "skipped")
             outcome.error_code = "no_sources"
             engines = f"（被拦截的搜索引擎：{', '.join(sorted(self.blocked_engines))}）" if self.blocked_engines else ""
-            outcome.error_desc = (f"未能读取到可用的网页正文：受限 {self.blocked} 个、失败 {self.failed} 个{engines}。"
-                                  "可以稍后重试，或换一种说法/指定网站。")
+            if "plan" not in self.stages:  # 只基于上传文件
+                why = "；".join(f"{x['name']}：{x['reason']}" for x in self.file_failures) or "文件没有可用内容"
+                outcome.error_desc = f"没能读取上传的文件：{why}"
+            else:
+                outcome.error_desc = (f"未能读取到可用的网页正文：受限 {self.blocked} 个、失败 {self.failed} 个{engines}。"
+                                      "可以稍后重试，或换一种说法/指定网站。")
             outcome.parts.append({"type": "error", "part_id": f"error-{self.ctx.task_id}", "code": "no_sources",
                                   "message": outcome.error_desc, "task_id": self.ctx.task_id})
             return outcome
@@ -229,6 +191,126 @@ class Pipeline:
                                   "items": written["follow_ups"]})
         outcome.delivered = True
         return outcome
+
+    async def _web_phase(self) -> None:
+        """规划 → 浏览器搜索/读取/抽取 → 覆盖评估与补查。"""
+        await self._stage("plan")
+        planned = await self.ctx.step("plan", self._plan_fn, agent_role="search_planner",
+                                      input_json={"limits": self.spec.limits.model_dump()})
+        self.intent = planned.get("intent") or self.spec.requirement_text
+        self.preferred_sources = planned.get("preferred_sources", [])
+        self.sub_questions = planned.get("sub_questions") or list(self.spec.scope.questions) or [self.spec.requirement_text]
+        self.key_entities = planned.get("key_entities", [])
+        queries = [self._as_query(q) for q in planned["queries"]]
+        await self._stage("plan", "done", queries=len(queries))
+
+        pool = get_pool()
+        settings = get_settings()
+        async with AsyncExitStack() as stack:
+            sessions = []
+
+            async def get_sessions(n: int):
+                while len(sessions) < n:
+                    sessions.append(await stack.enter_async_context(pool.session(
+                        project_id=self.ctx.project_id, task_id=self.ctx.task_id, run_id=self.ctx.run_id,
+                        worker_id=self.ctx.worker_id, label=f"会话{len(sessions) + 1}")))
+                    if len(sessions) == 1:
+                        await update_progress(self.ctx.task_id, browser_available=True)
+                return sessions[:n]
+
+            await self._wave(1, queries, self.spec.limits.max_sources, get_sessions, settings.task_read_concurrency)
+
+            if "coverage" in self.stages:
+                # 规划 → 搜索 → 反思（按子问题评估覆盖）→ 针对缺口补查，最多 max_waves 轮
+                await self._stage("coverage")
+                max_waves = settings.task_max_extra_waves if self.spec.mode in ("research", "hybrid") else \
+                    min(1, settings.task_max_extra_waves)
+                did_extra = False
+                for w in range(1, max_waves + 1):
+                    if not self.sources:
+                        break
+                    review = await self.ctx.step(f"coverage:w{w}", lambda c, w=w: self._coverage_fn(c, w, max_waves),
+                                                 agent_role="coordinator")
+                    self.coverage_missing = review.get("missing_aspects", [])
+                    extra = review["extra_queries"]
+                    if not extra:
+                        break
+                    did_extra = True
+                    await self._inc(queries=len(extra))
+                    extra_limit = min(4, max(2, self.spec.limits.max_sources // 2))
+                    await self._wave(w + 1, [self._as_query(q) for q in extra], extra_limit, get_sessions,
+                                     settings.task_read_concurrency)
+                    await self._stage("coverage")
+                await self._stage("coverage", "done" if did_extra else "skipped")
+        await update_progress(self.ctx.task_id, browser_available=True)  # 会话已关闭，保留最后帧供查看
+
+    async def _files_phase(self) -> None:
+        """上传文件：等待解析完成 → 每个文件（长文档按章节/页码分段）登记为可引用的来源 → 抽取。"""
+        await self._stage("files")
+        out = await self.ctx.step("files", self._files_fn, node_kind="deterministic",
+                                  input_json={"file_ids": self.spec.scope.file_ids})
+        self.file_failures = out.get("failed", [])
+        for o in out["sources"]:
+            self._register_source(o)
+        await self._stage("files", "done", sources_read=len(out["sources"]),
+                          sources_failed=len(self.file_failures))
+        if out["sources"]:
+            await self._stage("extract")
+            try:
+                async with asyncio.TaskGroup() as tg:
+                    for o in out["sources"]:
+                        tg.create_task(self._extract_one(o["source_revision_id"]))
+            except BaseExceptionGroup as eg:
+                raise _unwrap_group(eg) from None
+            if "plan" not in self.stages:
+                await self._stage("extract", "done")
+
+    async def _files_fn(self, c: TaskExecContext) -> StepResult:
+        from ..db.base import session_scope
+        from ..db.models import UploadedFile
+        from ..files.service import load_markdown, segments
+
+        ids = list(dict.fromkeys(self.spec.scope.file_ids))
+        deadline = asyncio.get_running_loop().time() + get_settings().files_parse_timeout_s + 120
+        while True:  # 等待解析完成（解析在后台进行，任务可能比解析先开始）
+            await c.check()
+            async with session_scope() as s:
+                rows = [f for f in [await s.get(UploadedFile, i) for i in ids]
+                        if f is not None and f.project_id == c.project_id and f.file_status == "active"]
+            pending = [f for f in rows if f.parse_status in ("queued", "parsing")]
+            if not pending or asyncio.get_running_loop().time() > deadline:
+                break
+            await asyncio.sleep(2)
+        sources, failed, persist_rows = [], [], []
+        now = utcnow()
+        for f in rows:
+            if f.parse_status != "parsed":
+                failed.append({"name": f.display_name, "reason": f.parse_error or "解析未完成"})
+                continue
+            md = await load_markdown(f)
+            segs = segments(md)
+            for k, (label, text) in enumerate(segs, 1):
+                srid = new_id("srcrev")
+                ref, chash = await self.storage.put(f"sources/{c.task_id}/{srid}.txt", text.encode("utf-8"))
+                n = self._next_n
+                self._next_n += 1
+                url = f"file:{f.file_id}#{k}"
+                title = f.display_name + (f" · {label}" if len(segs) > 1 and label else "")
+                persist_rows.append(SourceRevision(
+                    source_revision_id=srid, project_id=c.project_id, task_id=c.task_id, source_no=n,
+                    request_url=url, final_url=url, title=title[:512], site_name="上传的文件", retrieved_time=now,
+                    access_method="user_file", content_hash=chash, content_ref=ref, text_char_qty=len(text),
+                    revision_status="captured"))
+                sources.append({"source_revision_id": srid, "n": n, "url": url, "final_url": url, "title": title,
+                                "site_name": "上传的文件", "publish_time_text": None, "retrieved_time": iso(now),
+                                "access_method": "user_file", "content_ref": ref, "file_id": f.file_id})
+        missing = [i for i in ids if i not in {f.file_id for f in rows}]
+        failed += [{"name": i, "reason": "文件不存在或已删除"} for i in missing]
+
+        async def persist(s: AsyncSession) -> None:
+            s.add_all(persist_rows)
+
+        return StepResult({"sources": sources, "failed": failed}, persist)
 
     def _citation(self, n: int) -> dict | None:
         for s in self.sources.values():
@@ -342,12 +424,16 @@ class Pipeline:
     def _register_source(self, out: dict) -> None:
         if out["source_revision_id"] in self.sources:
             return
-        self.read_urls.add(normalize_url(out["final_url"] or out["url"]))
+        user_file = out.get("access_method") == "user_file"
+        if not user_file:
+            self.read_urls.add(normalize_url(out["final_url"] or out["url"]))
         self.sources[out["source_revision_id"]] = SourceInfo(
             n=out["n"], source_revision_id=out["source_revision_id"], url=out["final_url"] or out["url"],
             title=out.get("title"), site_name=out.get("site_name"), publish_time_text=out.get("publish_time_text"),
             retrieved_time=out["retrieved_time"], access_method=out["access_method"], content_ref=out["content_ref"],
-            credibility=credibility.classify(out["final_url"] or out["url"], preferred=self.preferred_sources))
+            credibility="user_file" if user_file else
+            credibility.classify(out["final_url"] or out["url"], preferred=self.preferred_sources),
+            file_id=out.get("file_id"))
 
     async def _extract_one(self, srid: str) -> None:
         async with self._llm_sem:
@@ -776,6 +862,7 @@ class Pipeline:
         if self.blocked or self.failed:
             gaps.append(f"{self.blocked} 个来源访问受限、{self.failed} 个读取失败，未纳入")
         gaps += [f"覆盖不足：{m}" for m in self.coverage_missing]
+        gaps += [f"文件「{x['name']}」未能读取：{x['reason']}" for x in self.file_failures]
         is_answer = self.spec.mode == "quick_search"
         report = self.spec.report
         outline = (report.outline if report and report.outline else []) or list(self.sub_questions)
@@ -836,5 +923,6 @@ class Pipeline:
 
 
 def task_stages_from_spec(spec: TaskSpec) -> list[str]:
-    return coordinator.stages_for(spec.mode, has_analysis=bool(spec.dataset and spec.dataset.analysis_request))
+    return coordinator.stages_for(spec.mode, has_analysis=bool(spec.dataset and spec.dataset.analysis_request),
+                                  has_files=bool(spec.scope.file_ids), use_web=spec.scope.web_enabled())
 
