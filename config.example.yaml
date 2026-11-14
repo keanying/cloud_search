@@ -62,8 +62,9 @@ search:
   # 被拦截、网络不可达或返回无关结果时自动换下一个。中国大陆网络访问 DuckDuckGo/Google 通常需要设置 browser.proxy。
   engines: [duckduckgo, ddgs, google, bing, baidu, sogou]
   strategy: priority            # priority：总是先用第一个，失败才换；rotate：每次查询轮换起始引擎分散负载
-  # DuckDuckGo 搜索方式（参考 duckduckgo-mcp-server）：auto = 先用 HTTP 接口 html.duckduckgo.com（快、不开浏览器，
-  # 被拦时用 curl_cffi 模拟 Chrome 重试），仍被拦再用浏览器打开（可请你接手验证）；http = 只用接口；browser = 只用浏览器
+  # DuckDuckGo 搜索方式：auto = 先用 duckduckgo-mcp-server（github.com/nickclyde/duckduckgo-mcp-server）请求
+  # html.duckduckgo.com（快、不开浏览器，被拦时它会用 curl_cffi 模拟 Chrome 重试），仍拿不到结果再用浏览器打开
+  # （可请你接手验证）；http = 只用 duckduckgo-mcp-server；browser = 只用浏览器
   ddg_backend: auto
   ddg_rpm: 30                   # DuckDuckGo 接口每分钟最多请求次数（过快会被限流）
   ddgs_backends: brave, mojeek, yahoo, wikipedia   # ddgs 聚合搜索使用的引擎（不开浏览器），也可填 auto

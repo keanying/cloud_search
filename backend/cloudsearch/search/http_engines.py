@@ -1,19 +1,18 @@
-"""不开浏览器的 HTTP 搜索（参考 nickclyde/duckduckgo-mcp-server 与 deedy5/ddgs）。
+"""不开浏览器的 HTTP 搜索。
 
-DuckDuckGo（主力）：POST https://html.duckduckgo.com/html，表单 q / b / kl（地区）/ kp（安全搜索）/ df（时间范围），
-  带 Chrome 请求头；解析 .result / .result__title a / .result__snippet，去广告（y.js）、解码 uddg 跳转。
-  被拦（HTTP 202/403、空页面、异常流量页）时改用 curl_cffi 模拟 Chrome 的 TLS 指纹重试；仍不行再由调用方退回浏览器搜索。
-  滑动窗口限速（默认每分钟 30 次），429 时按 Retry-After（最多 30 秒）重试一次。
-ddgs（补充）：多引擎聚合（Brave、Mojeek、Yahoo、Wikipedia 等），DuckDuckGo 被拦时作为不开浏览器的备选。
-两者都走 config.yaml 的 browser.proxy（与云端浏览器同一出口）。
+DuckDuckGo（主力）：直接使用 nickclyde/duckduckgo-mcp-server（PyPI: duckduckgo-mcp-server）的 DuckDuckGoSearcher：
+  POST html.duckduckgo.com/html，Chrome 请求头，httpx 被拦（202/403/空页面）时自动改用 curl_cffi 模拟 Chrome TLS，
+  内置滑动窗口限速与 429 Retry-After、去广告、解码跳转链接。
+  在它之上补两点（子类）：走 config.yaml 的 browser.proxy（与云端浏览器同一出口）；支持时间范围（df=d/w/m/y）。
+  仍然拿不到结果时由调用方退回浏览器搜索（遇到验证可请你接手）。
+ddgs（补充）：deedy5/ddgs 多引擎聚合（Brave、Mojeek、Yahoo、Wikipedia 等），DuckDuckGo 被拦时作为不开浏览器的备选。
 """
 
 from __future__ import annotations
 
 import asyncio
-import collections
+import contextvars
 import logging
-import time
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from ..core.config import get_settings
@@ -21,50 +20,16 @@ from ..core.tracelog import trace
 
 log = logging.getLogger(__name__)
 
-DDG_HTML = "https://html.duckduckgo.com/html"
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
-                  "Chrome/139.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-    "Origin": "https://html.duckduckgo.com",
-    "Referer": "https://html.duckduckgo.com/",
-    "Sec-Fetch-Dest": "document", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Site": "same-origin",
-    "Sec-Fetch-User": "?1", "Upgrade-Insecure-Requests": "1",
-    "Sec-Ch-Ua": '"Not;A=Brand";v="99", "Google Chrome";v="139", "Chromium";v="139"',
-    "Sec-Ch-Ua-Mobile": "?0", "Sec-Ch-Ua-Platform": '"Windows"',
-}
 RECENCY = {"day": "d", "week": "w", "month": "m", "year": "y"}
+_df: contextvars.ContextVar[str | None] = contextvars.ContextVar("cs_ddg_df", default=None)
 
 
 class HttpBlocked(Exception):
-    """HTTP 方式被拦截（202/403/空页面/异常流量页），message 为原因。"""
+    """HTTP 方式没有拿到结果（被拦截、网络错误或页面变化），message 为原因。"""
 
 
 def region(lang: str | None) -> str:
     return {"zh": "cn-zh", "en": "us-en"}.get(lang or "", "wt-wt")
-
-
-class SlidingWindow:
-    """进程内滑动窗口限速：60 秒内最多 rpm 次。"""
-
-    def __init__(self) -> None:
-        self.calls: collections.deque[float] = collections.deque()
-        self.lock = asyncio.Lock()
-
-    async def acquire(self, rpm: int) -> None:
-        async with self.lock:
-            while True:
-                now = time.monotonic()
-                while self.calls and now - self.calls[0] > 60:
-                    self.calls.popleft()
-                if len(self.calls) < max(1, rpm):
-                    self.calls.append(now)
-                    return
-                await asyncio.sleep(60 - (now - self.calls[0]) + 0.05)
-
-
-_ddg_limiter = SlidingWindow()
 
 
 def decode_link(href: str) -> str:
@@ -76,95 +41,93 @@ def decode_link(href: str) -> str:
     return href
 
 
-def parse_ddg_html(html: str) -> list[dict]:
-    """解析 DuckDuckGo HTML 版结果页 → [{url, title, snippet}]（去广告、解码跳转）。"""
-    from lxml import html as lh
+class _TraceContext:
+    """duckduckgo-mcp-server 需要的 MCP Context：把它的 info/error 写进执行日志，并记住错误。"""
 
-    def has(cls: str) -> str:  # XPath：class 属性里包含某个类名（不依赖 cssselect）
-        return f"contains(concat(' ', normalize-space(@class), ' '), ' {cls} ')"
+    def __init__(self) -> None:
+        self.errors: list[str] = []
+        self.notes: list[str] = []
 
-    doc = lh.fromstring(html)
-    out = []
-    for r in doc.xpath(f"//*[{has('result')}]"):
-        cls = r.get("class") or ""
-        if "result--ad" in cls:
-            continue
-        a = r.xpath(f".//*[{has('result__title')}]//a") or r.xpath(f".//a[{has('result__a')}]")
-        if not a:
-            continue
-        href = decode_link(a[0].get("href") or "")
-        if not href.startswith(("http://", "https://")) or "duckduckgo.com/y.js" in href:
-            continue
-        sn = r.xpath(f".//*[{has('result__snippet')}]")
-        out.append({"url": href, "title": a[0].text_content().strip(),
-                    "snippet": sn[0].text_content().strip() if sn else None})
-    return out
+    async def info(self, message: str, *args, **kwargs) -> None:
+        self.notes.append(str(message))
+        if "retrying with curl" in str(message) or "block" in str(message).lower():
+            trace("search", f"duckduckgo-mcp-server：{message}")
+
+    async def error(self, message: str, *args, **kwargs) -> None:
+        self.errors.append(str(message))
+        trace("search", f"duckduckgo-mcp-server 报错：{message}")
+
+    async def debug(self, message: str, *args, **kwargs) -> None:
+        pass
+
+    async def warning(self, message: str, *args, **kwargs) -> None:
+        self.notes.append(str(message))
 
 
-def _block_reason(status: int, text: str) -> str | None:
-    if status in (202, 403):
-        return f"HTTP {status}（DuckDuckGo 判定为异常流量）"
-    if status == 200 and not text.strip():
-        return "返回了空页面"
-    low = text[:4000].lower()
-    if "anomaly-modal" in low or "unusual traffic" in low or "bots use duckduckgo" in low:
-        return "返回了异常流量验证页"
-    return None
+_searcher = None
+_searcher_key: tuple | None = None
 
 
-async def _post_httpx(data: dict) -> tuple[int, str, dict]:
+def _make_searcher():
+    """创建（并缓存）带代理与时间范围支持的 DuckDuckGoSearcher。"""
+    global _searcher, _searcher_key
     import httpx
+    from duckduckgo_mcp_server.server import DuckDuckGoSearcher, SafeSearchMode, _sleep_retry_after
 
-    proxy = get_settings().browser_proxy or None
-    async with httpx.AsyncClient(timeout=20, proxy=proxy, follow_redirects=True) as c:
-        r = await c.post(DDG_HTML, data=data, headers=HEADERS)
-        return r.status_code, r.text, dict(r.headers)
+    s = get_settings()
+    key = (s.browser_proxy, s.search_ddg_rpm)
+    if _searcher is not None and _searcher_key == key:
+        return _searcher
+    proxy = s.browser_proxy or None
 
+    class CloudSearchDdg(DuckDuckGoSearcher):
+        async def _request(self, data: dict, ctx) -> str:
+            df = _df.get()
+            return await super()._request({**data, "df": df} if df else data, ctx)
 
-async def _post_curl(data: dict) -> tuple[int, str, dict]:
-    from curl_cffi.requests import AsyncSession
+        async def _request_httpx(self, data: dict) -> tuple[int, str]:
+            # 与上游实现相同，只是加上代理（上游没有代理参数）
+            async with httpx.AsyncClient(verify=self.ssl_verify, proxy=proxy) as client:
+                response = await client.post(self.BASE_URL, data=data, headers=self.HEADERS, timeout=30.0)
+                if response.status_code == 429:
+                    await _sleep_retry_after(response.headers)
+                    response = await client.post(self.BASE_URL, data=data, headers=self.HEADERS, timeout=30.0)
+                response.raise_for_status()
+                return response.status_code, response.text
 
-    proxy = get_settings().browser_proxy or None
-    async with AsyncSession(impersonate="chrome131") as c:
-        r = await c.post(DDG_HTML, data=data, timeout=20, proxy=proxy)
-        return r.status_code, r.text, dict(r.headers)
+        async def _request_curl(self, data: dict) -> str:
+            from curl_cffi.requests import AsyncSession
+
+            async with AsyncSession(impersonate="chrome131", verify=self.ssl_verify, proxy=proxy) as client:
+                response = await client.post(self.BASE_URL, data=data, timeout=30.0)
+                if getattr(response, "status_code", None) == 429:
+                    await _sleep_retry_after(getattr(response, "headers", None))
+                    response = await client.post(self.BASE_URL, data=data, timeout=30.0)
+                response.raise_for_status()
+                return response.text
+
+    _searcher = CloudSearchDdg(safe_search=SafeSearchMode.MODERATE, backend="auto",
+                               requests_per_minute=s.search_ddg_rpm, ref_url_threshold=0)
+    _searcher_key = key
+    return _searcher
 
 
 async def ddg_http_search(query: str, n: int, *, lang: str | None = None, recency: str | None = None) -> list[dict]:
-    """DuckDuckGo HTML 接口搜索。返回原始结果行；被拦截时抛 HttpBlocked。"""
-    s = get_settings()
-    data = {"q": query, "b": "", "kl": region(lang), "kp": "-1"}
-    if recency in RECENCY:
-        data["df"] = RECENCY[recency]
-    reasons = []
-    for name, post in (("httpx", _post_httpx), ("curl_cffi", _post_curl)):
-        await _ddg_limiter.acquire(s.search_ddg_rpm)
-        t0 = time.monotonic()
-        try:
-            status, text, headers = await post(data)
-            if status == 429:  # 限流：按 Retry-After 等待后重试一次
-                wait = min(30.0, float(headers.get("retry-after") or headers.get("Retry-After") or 5))
-                trace("search", f"duckduckgo（HTTP/{name}）被限流，{wait:.0f}s 后重试")
-                await asyncio.sleep(wait)
-                status, text, headers = await post(data)
-        except Exception as e:  # noqa: BLE001 —— 网络不通、TLS 错误、未安装 curl_cffi 等
-            reasons.append(f"{name}: {type(e).__name__} {str(e)[:120]}")
-            continue
-        why = _block_reason(status, text)
-        if why:
-            reasons.append(f"{name}: {why}")
-            trace("search", f"duckduckgo（HTTP/{name}）被拦截：{why}（{time.monotonic() - t0:.1f}s）")
-            continue
-        if status != 200:
-            reasons.append(f"{name}: HTTP {status}")
-            continue
-        rows = parse_ddg_html(text)
-        if not rows and "no-results" not in text and "No results" not in text and "没有结果" not in text:
-            reasons.append(f"{name}: 页面里没有解析到结果（页面结构可能变化）")
-            continue
-        trace("search", f"duckduckgo（HTTP/{name}）：{len(rows)} 条（{time.monotonic() - t0:.1f}s）")
-        return rows[: max(n, 1)]
-    raise HttpBlocked("；".join(reasons) or "未知原因")
+    """用 duckduckgo-mcp-server 搜索 DuckDuckGo。返回 [{url, title, snippet}]；没有拿到结果时抛 HttpBlocked。"""
+    searcher = _make_searcher()
+    ctx = _TraceContext()
+    token = _df.set(RECENCY.get(recency or ""))
+    try:
+        results = await searcher.search(query, ctx, max_results=max(n, 1), region=region(lang))
+    finally:
+        _df.reset(token)
+    rows = [{"url": decode_link(r.link), "title": r.title, "snippet": r.snippet} for r in results
+            if (r.link or "").startswith(("http://", "https://", "//"))]
+    if rows:
+        trace("search", f"duckduckgo（duckduckgo-mcp-server）：{len(rows)} 条")
+        return rows
+    why = "；".join(ctx.errors) or "没有返回结果（可能被拦截，或确实没有结果）"
+    raise HttpBlocked(why[:300])
 
 
 async def ddgs_search(query: str, n: int, *, lang: str | None = None, recency: str | None = None) -> list[dict]:

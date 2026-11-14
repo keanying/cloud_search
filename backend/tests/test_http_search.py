@@ -15,56 +15,69 @@ DDG_PAGE = """<html><body><div class="serp__results">
 </div></body></html>"""
 
 
-def test_parse_ddg_html():
-    from cloudsearch.search.http_engines import parse_ddg_html
-
-    rows = parse_ddg_html(DDG_PAGE)
-    assert [r["url"] for r in rows] == ["https://www.dpm.org.cn/visit.html", "https://baike.baidu.com/item/故宫"]
-    assert rows[0]["title"] == "故宫博物院 开放时间" and "周一闭馆" in rows[0]["snippet"]
-
-
-async def test_ddg_http_fallback_chain(env, monkeypatch):
+async def _stub_searcher(monkeypatch, httpx_result, curl_result=None):
+    """只替换 duckduckgo-mcp-server 的网络请求，保留它自己的回退判断、解析、去广告逻辑。"""
     from cloudsearch.search import http_engines as he
 
+    he._searcher = None
+    searcher = he._make_searcher()
     calls = []
 
-    async def httpx_blocked(data):
-        calls.append(("httpx", data))
-        return 202, "<html>anomaly</html>", {}
+    async def fake_httpx(data):
+        calls.append(("httpx", dict(data)))
+        return httpx_result
 
-    async def curl_ok(data):
-        calls.append(("curl", data))
-        return 200, DDG_PAGE, {}
+    async def fake_curl(data):
+        calls.append(("curl", dict(data)))
+        if isinstance(curl_result, Exception):
+            raise curl_result
+        return curl_result
 
-    monkeypatch.setattr(he, "_post_httpx", httpx_blocked)
-    monkeypatch.setattr(he, "_post_curl", curl_ok)
-    rows = await he.ddg_http_search("故宫 开放时间", 5, lang="zh", recency="month")
-    assert len(rows) == 2 and [c[0] for c in calls] == ["httpx", "curl"]
-    assert calls[0][1] == {"q": "故宫 开放时间", "b": "", "kl": "cn-zh", "kp": "-1", "df": "m"}
-
-    async def curl_blocked(data):
-        return 403, "", {}
-
-    monkeypatch.setattr(he, "_post_curl", curl_blocked)
-    with pytest.raises(he.HttpBlocked, match="HTTP 202.*HTTP 403"):
-        await he.ddg_http_search("x", 5)
+    monkeypatch.setattr(searcher, "_request_httpx", fake_httpx)
+    monkeypatch.setattr(searcher, "_request_curl", fake_curl)
+    return calls
 
 
-async def test_ddg_http_retry_after(env, monkeypatch):
+async def test_ddg_uses_duckduckgo_mcp_server(env, monkeypatch):
+    from duckduckgo_mcp_server.server import DuckDuckGoSearcher
+
     from cloudsearch.search import http_engines as he
 
-    seq = [(429, "", {"retry-after": "1"}), (200, DDG_PAGE, {})]
-    slept = []
+    calls = await _stub_searcher(monkeypatch, (200, DDG_PAGE))
+    rows = await he.ddg_http_search("故宫 开放时间", 5, lang="zh", recency="month")
+    assert isinstance(he._searcher, DuckDuckGoSearcher)  # 用的是上游库
+    assert [r["url"] for r in rows] == ["https://www.dpm.org.cn/visit.html", "https://baike.baidu.com/item/故宫"]
+    assert rows[0]["title"] == "故宫博物院 开放时间" and "周一闭馆" in rows[0]["snippet"]
+    assert calls == [("httpx", {"q": "故宫 开放时间", "b": "", "kl": "cn-zh", "kp": "-1", "df": "m"})]
 
-    async def post(data):
-        return seq.pop(0)
 
-    async def fake_sleep(s):
-        slept.append(s)
+async def test_ddg_library_falls_back_to_curl_then_reports_block(env, monkeypatch):
+    from cloudsearch.search import http_engines as he
 
-    monkeypatch.setattr(he, "_post_httpx", post)
-    monkeypatch.setattr(he.asyncio, "sleep", fake_sleep)
-    assert len(await he.ddg_http_search("x", 5)) == 2 and slept == [1.0]
+    calls = await _stub_searcher(monkeypatch, (202, "<html>anomaly</html>"), DDG_PAGE)
+    assert len(await he.ddg_http_search("故宫", 5)) == 2
+    assert [c[0] for c in calls] == ["httpx", "curl"]  # 上游 auto：202 被拦 → curl_cffi 重试
+
+    await _stub_searcher(monkeypatch, (202, ""), "<html>still blocked</html>")
+    with pytest.raises(he.HttpBlocked, match="没有返回结果"):
+        await he.ddg_http_search("故宫", 5)
+
+    await _stub_searcher(monkeypatch, (202, ""), RuntimeError("curl boom"))
+    with pytest.raises(he.HttpBlocked, match="curl boom"):
+        await he.ddg_http_search("故宫", 5)
+
+
+def test_proxy_passed_to_library_clients(env, monkeypatch):
+    from cloudsearch.core.config import get_settings
+    from cloudsearch.search import http_engines as he
+
+    monkeypatch.setattr(get_settings(), "browser_proxy", "http://127.0.0.1:7890")
+    he._searcher = None
+    a = he._make_searcher()
+    assert he._make_searcher() is a  # 缓存
+    monkeypatch.setattr(get_settings(), "browser_proxy", None)
+    assert he._make_searcher() is not a  # 代理变化后重建
+    he._searcher = None
 
 
 async def test_duckduckgo_engine_http_first_then_browser(env, monkeypatch):
@@ -80,7 +93,7 @@ async def test_duckduckgo_engine_http_first_then_browser(env, monkeypatch):
     eng = engines.DuckDuckGoEngine()
 
     async def ok(q, n, lang=None, recency=None):
-        return he.parse_ddg_html(DDG_PAGE)
+        return [{"url": "https://www.dpm.org.cn/visit.html", "title": "故宫博物院 开放时间", "snippet": "周一闭馆"}]
 
     monkeypatch.setattr(he, "ddg_http_search", ok)
     hits = await eng.search(Sess(), "故宫 开放时间", 5, lang="zh")
