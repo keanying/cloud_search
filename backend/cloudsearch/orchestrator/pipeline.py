@@ -909,13 +909,14 @@ class Pipeline:
         is_answer = self.spec.mode == "quick_search"
         report = self.spec.report
         outline = (report.outline if report and report.outline else []) or list(self.sub_questions)
+        on_partial = self._draft_publisher(c, "answer" if is_answer else "report")
         draft, used, charts = await report_writer.write(
             kind="answer" if is_answer else "report",
             question=report.question if report else "；".join(self.spec.scope.questions) or self.spec.requirement_text,
             outline=outline, audience=report.audience if report else None,
             evidence_block=evidence_block, valid_ns=set(evidence_text) or {s.n for s in self.sources.values()},
             analysis_block=analysis_block, conflicts_block=conflicts_block, gaps_block="\n".join(gaps), ctx=c,
-            today=utcnow().strftime("%Y-%m-%d"), evidence_by_n=evidence_text)
+            today=utcnow().strftime("%Y-%m-%d"), evidence_by_n=evidence_text, on_partial=on_partial)
         title = draft.title or self.spec.title
         full_md = report_writer.assemble_markdown(draft, charts, include_title=True, with_highlights=True)
         if is_answer:
@@ -942,6 +943,25 @@ class Pipeline:
                            "highlights": [h.model_dump() for h in draft.highlights],
                            "follow_ups": draft.follow_ups,
                            "bundles": [bundle["part"]]}, persist)
+
+    def _draft_publisher(self, c: TaskExecContext, kind: str):
+        """撰写过程实时显示：把模型边生成边返回的部分草稿推送到对话（约每 0.6 秒一次）。"""
+        loop = asyncio.get_running_loop()
+        state = {"at": 0.0, "chars": 0}
+        part_id = f"draft-{c.task_id}"
+
+        async def publish(draft) -> None:
+            now = loop.time()
+            text = report_writer.assemble_markdown(draft, [], include_title=False)
+            if len(text) <= state["chars"] or now - state["at"] < 0.6:
+                return
+            state["at"], state["chars"] = now, len(text)
+            await update_progress(c.task_id, extra_parts=[{
+                "type": "draft", "part_id": part_id, "task_id": c.task_id, "kind": kind,
+                "title": getattr(draft, "title", "") or self.spec.title, "text": text, "chars": len(text),
+                "status": "writing"}])
+
+        return publish
 
     async def _save_report_bundle(self, c: TaskExecContext, title: str, markdown: str, sources: list[dict]) -> dict:
         """同一份报告生成 HTML / Word / PDF / Markdown 四种格式（PDF 需要浏览器，不可用时省略）。"""

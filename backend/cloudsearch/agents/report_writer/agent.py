@@ -117,12 +117,13 @@ def assemble_markdown(draft: ReportDraft, charts: list[ChartSpec], *, include_ti
 
 async def write(*, kind: str, question: str, outline: list[str], audience: str | None, evidence_block: str,
                 valid_ns: set[int], analysis_block: str, conflicts_block: str, gaps_block: str,
-                ctx: ExecContext, today: str = "", evidence_by_n: dict[int, str] | None = None
-                ) -> tuple[ReportDraft, list[int], list[ChartSpec]]:
+                ctx: ExecContext, today: str = "", evidence_by_n: dict[int, str] | None = None,
+                on_partial=None) -> tuple[ReportDraft, list[int], list[ChartSpec]]:
+    """on_partial：撰写过程中收到部分草稿（ReportDraft）的回调，用于实时显示。"""
     draft = await run_agent(SPEC, build_prompt(kind=kind, question=question, outline=outline, audience=audience,
                                                evidence_block=evidence_block, analysis_block=analysis_block,
                                                conflicts_block=conflicts_block, gaps_block=gaps_block, today=today),
-                            ctx=ctx)
+                            ctx=ctx, on_partial=on_partial)
     draft.highlights = verify_highlights([h for h in draft.highlights if h.source_n in valid_ns],
                                          evidence_by_n or {}, analysis_block)
     draft.follow_ups = [q.strip() for q in draft.follow_ups if q.strip()][:3]

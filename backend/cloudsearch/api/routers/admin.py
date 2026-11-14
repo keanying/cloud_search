@@ -235,7 +235,15 @@ def _task_item(t: Task, u: User | None) -> dict:
         "username": u.username if u else None, "display_name": u.display_name if u else None,
         "conversation_id": t.conversation_id, "llm_request_qty": t.llm_request_qty,
         "spent_minor_amt": t.spent_minor_amt, "cost_unknown_qty": t.cost_unknown_qty,
-        "created_time": _iso(t.created_time), "updated_time": _iso(t.updated_time)}
+        "created_time": _iso(t.created_time), "updated_time": _iso(t.updated_time),
+        **_task_timing(t)}
+
+
+def _task_timing(t: Task) -> dict:
+    from ...orchestrator.progress import timing_of
+
+    tm = timing_of(t.result_summary or {})
+    return {"elapsed_ms": tm["elapsed_ms"], "stage_ms": tm["stage_ms"]}
 
 
 def _ms(a, b) -> int | None:

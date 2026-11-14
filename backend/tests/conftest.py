@@ -85,7 +85,8 @@ class FakeLLM:
     refine_output: list[dict] = field(default_factory=list)
     coverage_outputs: list[dict] = field(default_factory=list)  # coordinator 覆盖评估，按顺序弹出
     writer_extra: dict = field(default_factory=dict)
-    extract_two: bool = False  # 额外抽取第二句（含票价数字）  # 合并进 report_writer 输出（highlights/follow_ups 等）
+    extract_two: bool = False  # 额外抽取第二句（含票价数字）
+    stream_writer: bool = False  # report_writer 以流式返回（测试实时撰写显示）  # 合并进 report_writer 输出（highlights/follow_ups 等）
 
     def _model(self, role: str, builder):
         async def fn(messages, info: AgentInfo):
@@ -98,6 +99,23 @@ class FakeLLM:
                 await self.gate.wait()
             return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, args)])
 
+        async def sfn(messages, info: AgentInfo):
+            import json as _json
+
+            from pydantic_ai.models.function import DeltaToolCall
+
+            self.calls[role] = self.calls.get(role, 0) + 1
+            prompt = "\n".join(str(getattr(p, "content", "")) for m in messages for p in getattr(m, "parts", []))
+            self.prompts.setdefault(role, []).append(prompt)
+            full = _json.dumps(builder(prompt), ensure_ascii=False)
+            name = info.output_tools[0].name
+            for i in range(0, len(full), 40):
+                yield {0: DeltaToolCall(name=name if i == 0 else None, json_args=full[i:i + 40],
+                                        tool_call_id="w1" if i == 0 else None)}
+                await asyncio.sleep(0.25)
+
+        if role == "report_writer" and self.stream_writer:
+            return FunctionModel(fn, stream_function=sfn)
         return FunctionModel(fn)
 
     def _planner(self, prompt: str, props: dict) -> dict:
@@ -151,7 +169,8 @@ class FakeLLM:
                                         **self.writer_extra},
         }
         for role, b in roles.items():
-            set_model_override(role, self._model(role, b))
+            # 每次调用时再构建模型：测试中途修改的开关（如 stream_writer）也能生效
+            set_model_override(role, lambda r=role, b=b: self._model(r, b))
         return self
 
 

@@ -130,3 +130,29 @@ async def test_follow_up_sees_previous_answer_and_sources(client, fake_llm, fake
     assert "来源：[1]" in prompt and "example.com" in prompt
     assert prompt.count("详细说明。") > 160  # 最近的回答保留较完整（>800 字）
     assert "用户最新消息：那第二点展开说说" in prompt
+
+
+async def test_report_streams_live_draft_and_records_timing(client, fake_llm, fake_browser):
+    """撰写时边写边显示（draft 片段逐步变长），完成后由最终成果替代；任务与各阶段耗时被记录。"""
+    from sqlalchemy import select
+
+    from cloudsearch.db.base import session_scope
+    from cloudsearch.db.models import ConversationEvent
+
+    fake_llm.stream_writer = True
+    fake_llm.writer_markdown = "## 一、开放安排\n故宫每周一闭馆[1]。" + "补充说明。" * 60
+    h = await register(client)
+    task, msg = await _run(client, h, fake_llm, quick_task_output(), "故宫什么时候开放？")
+    assert task["task_status"] == "completed", task
+    async with session_scope() as s:
+        events = (await s.execute(select(ConversationEvent).where(
+            ConversationEvent.event_type == "message_updated").order_by(ConversationEvent.event_seq_no))).scalars().all()
+    drafts = [p for e in events for p in e.event_json.get("parts", []) if p.get("type") == "draft"]
+    assert len(drafts) >= 2 and drafts[-1]["chars"] > drafts[0]["chars"]  # 逐步变长
+    assert drafts[0]["status"] == "writing" and "开放安排" in drafts[-1]["text"]
+    assert not [p for p in msg["parts"] if p["type"] == "draft"]  # 最终消息里不再有草稿
+    progress = parts_of(msg, "progress")[0]
+    m = progress["metrics"]
+    assert m["elapsed_ms"] >= 500 and m["finished_ms"] and m["llm_requests"] >= 4
+    write = next(st for st in progress["stages"] if st["key"] == "write")
+    assert write["elapsed_ms"] >= 500  # 流式撰写约若干个 0.25s 片段

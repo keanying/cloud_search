@@ -6,6 +6,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+
+import logging
 import time
 
 from dataclasses import dataclass, field
@@ -44,6 +47,8 @@ ROLE_INFO: dict[str, tuple[str, str]] = {
     "report_writer": ("报告写作", "撰写带引用的回答/报告"),
 }
 
+log = logging.getLogger(__name__)
+
 O = TypeVar("O")
 
 
@@ -78,7 +83,8 @@ MAX_ADAPT_ATTEMPTS = 2  # 能力自适应最多降级重试次数
 
 
 async def run_agent(spec: AgentSpec[O], prompt: str, *, deps: Any = None, ctx: ExecContext | None = None,
-                    conversation_id: str | None = None) -> O:
+                    conversation_id: str | None = None,
+                    on_partial: Callable[[O], Awaitable[None]] | None = None) -> O:
     """调用一个智能体并返回经校验的结构化输出。
 
     若供应方因“不支持强制工具调用 / 思考模式”等返回 400，会自动降级输出方式、写回模型配置并重试。
@@ -89,7 +95,8 @@ async def run_agent(spec: AgentSpec[O], prompt: str, *, deps: Any = None, ctx: E
         async with session_scope() as s:
             resolved = await resolve_model(s, spec.role.value)
         try:
-            return await _run_once(spec, prompt, resolved, deps=deps, ctx=ctx, conversation_id=conversation_id)
+            return await _run_once(spec, prompt, resolved, deps=deps, ctx=ctx, conversation_id=conversation_id,
+                                   on_partial=on_partial)
         except Exception as e:
             actions = classify(e)
             if not actions or not resolved.pricing or attempt == MAX_ADAPT_ATTEMPTS:
@@ -100,8 +107,40 @@ async def run_agent(spec: AgentSpec[O], prompt: str, *, deps: Any = None, ctx: E
     raise AssertionError("unreachable")
 
 
+class _Streamed:
+    """流式调用的结果（与 AgentRunResult 用到的接口一致）。"""
+
+    def __init__(self, output: Any, messages: list) -> None:
+        self.output = output
+        self._messages = messages
+
+    def all_messages(self) -> list:
+        return self._messages
+
+
+async def _invoke(agent: Agent, prompt: str, deps: Any, limits: UsageLimits,
+                  on_partial: Callable[[Any], Awaitable[None]] | None):
+    """on_partial 不为空时流式调用：模型边生成边回调部分结果（用于实时显示撰写过程）；
+    模型/适配器不支持流式时退回普通调用。"""
+    if on_partial is None:
+        return await agent.run(prompt, deps=deps, usage_limits=limits)
+    try:
+        async with agent.run_stream(prompt, deps=deps, usage_limits=limits) as r:
+            async for partial in r.stream_output(debounce_by=0.3):
+                try:
+                    await on_partial(partial)
+                except Exception:  # noqa: BLE001 —— 展示失败不影响撰写
+                    log.debug("on_partial failed", exc_info=True)
+            output = await r.get_output()
+            return _Streamed(output, r.all_messages())
+    except AssertionError as e:
+        if "stream" not in str(e):
+            raise
+        return await agent.run(prompt, deps=deps, usage_limits=limits)
+
+
 async def _run_once(spec: AgentSpec[O], prompt: str, resolved, *, deps: Any, ctx: ExecContext | None,
-                    conversation_id: str | None) -> O:
+                    conversation_id: str | None, on_partial: Callable[[O], Awaitable[None]] | None = None) -> O:
     if ctx is not None:
         await ctx.check()
         await ctx.ensure_budget()
@@ -125,7 +164,7 @@ async def _run_once(spec: AgentSpec[O], prompt: str, resolved, *, deps: Any, ctx
     t0 = time.monotonic()
     want_prompt = get_settings().logs_include_prompts
     try:
-        result = await agent.run(prompt, deps=deps, usage_limits=UsageLimits(request_limit=spec.request_limit))
+        result = await _invoke(agent, prompt, deps, UsageLimits(request_limit=spec.request_limit), on_partial)
     except Exception as e:
         trace("llm", f"{spec.role.value} 调用失败（{time.monotonic() - t0:.1f}s）：{type(e).__name__}: {str(e)[:500]}",
               prompt_chars=len(prompt), status_code=getattr(e, "status_code", None),

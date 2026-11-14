@@ -183,6 +183,9 @@ async def _finish(ctx: TaskExecContext, status: str, *, error_code: str | None =
             task.task_status = status
             task.error_code, task.error_desc = error_code, error_desc
             task.current_stage = None
+            from .progress import close_timing
+
+            task.result_summary = close_timing(dict(task.result_summary or {}))
             extra = list(parts or []) + await _artifact_parts(s, task.task_id, artifact_ids or [], bundles)
             await project_task(s, task, task_event="run_finished", detail={"run_id": ctx.run_id},
                                extra_parts=extra, final=True)
@@ -219,5 +222,8 @@ async def _finish_interrupted(ctx: TaskExecContext, kind: str) -> None:
                                            "site_name": r.site_name, "retrieved_time": r.retrieved_time.isoformat()}
                                           for r in srcs]})
         task.current_stage = None
+        from .progress import close_timing
+
+        task.result_summary = close_timing(dict(task.result_summary or {}))
         await project_task(s, task, task_event=f"run_{run.run_status}", detail={"run_id": ctx.run_id},
                            extra_parts=extra, final=True)
