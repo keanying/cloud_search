@@ -57,7 +57,7 @@ const APP_NAV = computed(() => [
   { key: 'artifacts', label: '我的成果', icon: FileText, to: { name: 'artifacts' }, active: route.name === 'artifacts' },
   { key: 'settings', label: '设置', icon: Settings, to: { name: 'settings' }, active: route.name === 'settings' },
   ...(auth.user?.is_admin
-    ? [{ key: 'admin', label: '管理后台', icon: Bot, to: { name: 'admin-llm' }, active: route.name === 'admin-llm' }]
+    ? [{ key: 'admin', label: '管理后台', icon: Bot, to: { name: 'admin-overview' }, active: route.path.startsWith('/admin') }]
     : []),
 ])
 
@@ -222,7 +222,7 @@ function goSection(id: string) {
       </RouterLink>
       <RouterLink
         v-if="auth.user?.is_admin"
-        to="/admin/llm"
+        to="/admin/overview"
         role="menuitem"
         class="flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-slate-200 hover:bg-white/5"
       >

@@ -1,5 +1,13 @@
 // 轻量 fetch 封装：统一 Bearer、错误解析与 401 处理。
 import type {
+  AdminAgentRun,
+  AdminOverview,
+  AdminSettings,
+  AdminTask,
+  AdminUser,
+  DiagnoseOut,
+  Paged,
+  SettingValue,
   AgentBindingIn,
   AgentBindingOut,
   ArtifactOut,
@@ -84,7 +92,9 @@ export async function rawFetch(path: string, init: RequestInit = {}): Promise<Re
       ...init,
       headers: authHeaders(init.headers as Record<string, string> | undefined),
     })
-  } catch {
+  } catch (e) {
+    if (e instanceof DOMException && (e.name === 'TimeoutError' || e.name === 'AbortError'))
+      throw new ApiError(0, '请求超时，请稍后重试')
     throw new ApiError(0, '网络连接失败，请检查网络后重试')
   }
   if (res.status === 401) {
@@ -102,8 +112,9 @@ export async function rawFetch(path: string, init: RequestInit = {}): Promise<Re
   return res
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, timeoutMs?: number): Promise<T> {
   const init: RequestInit = { method }
+  if (timeoutMs) init.signal = AbortSignal.timeout(timeoutMs)
   if (body !== undefined) {
     init.body = JSON.stringify(body)
     init.headers = { 'Content-Type': 'application/json' }
@@ -206,4 +217,32 @@ export const api = {
   agentBindings: () => get<AgentBindingOut[]>('/admin/llm/agent-bindings'),
   putAgentBinding: (role: string, b: AgentBindingIn) =>
     put<AgentBindingOut>(`/admin/llm/agent-bindings/${enc(role)}`, b),
+
+  // 管理后台：概览、记录、用户、运行参数
+  adminOverview: (days = 14) => get<AdminOverview>(`/admin/overview?days=${days}`),
+  adminRuns: (q: PageQuery & { role?: string; status?: string }) => get<Paged<AdminAgentRun>>(`/admin/agent-runs${qs(q)}`),
+  adminTasks: (q: PageQuery & { status?: string; mode?: string }) => get<Paged<AdminTask>>(`/admin/tasks${qs(q)}`),
+  adminUsers: (q: PageQuery) => get<Paged<AdminUser>>(`/admin/users${qs(q)}`),
+  patchAdminUser: (id: string, b: { is_admin?: boolean; user_status?: 'active' | 'disabled' }) =>
+    patch<AdminUser>(`/admin/users/${enc(id)}`, b),
+  adminSettings: () => get<AdminSettings>('/admin/settings'),
+  putAdminSettings: (values: Record<string, SettingValue>) => put<AdminSettings>('/admin/settings', { values }),
+  resetAdminSetting: (key: string) => del<AdminSettings>(`/admin/settings/${enc(key)}`),
+  /** 引擎检测较慢（真实打开浏览器访问），单个引擎最长约 1 分钟 */
+  diagnoseSearch: (query: string, engines: string[] | null) =>
+    request<DiagnoseOut>('POST', '/admin/search/diagnose', { query, engines }, 120_000),
+}
+
+export interface PageQuery {
+  page?: number
+  size?: number
+  q?: string
+}
+
+/** 查询串：忽略空值 */
+function qs(o: object): string {
+  const parts = Object.entries(o as Record<string, unknown>)
+    .filter(([, v]) => v !== undefined && v !== null && v !== '')
+    .map(([k, v]) => `${enc(k)}=${enc(String(v))}`)
+  return parts.length ? `?${parts.join('&')}` : ''
 }

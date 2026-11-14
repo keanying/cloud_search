@@ -41,5 +41,5 @@ export function runHomeAction(a: HomeAction, router: Router, openHistory: () => 
   if (a.key === 'history') openHistory()
   else if (a.key === 'artifacts') void router.push({ name: 'artifacts' })
   else if (a.key === 'settings') void router.push({ name: 'settings' })
-  else if (a.key === 'admin') void router.push({ name: 'admin-llm' })
+  else if (a.key === 'admin') void router.push({ name: 'admin-overview' })
 }

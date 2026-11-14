@@ -332,6 +332,13 @@ function onPaste(e: ClipboardEvent) {
       <span class="text-sm font-medium">你正在操作云端浏览器 · AI 已暂停</span>
       <span v-if="countdown" class="pill bg-[var(--cs-surface-solid)] font-mono text-slate-200">剩余 {{ countdown }}</span>
       <div class="flex-1" />
+      <button
+        class="btn-ghost btn-sm"
+        title="验证框没有出现或卡住时，刷新云端页面重新加载"
+        @click="live.send({ type: 'reload' })"
+      >
+        <RefreshCw class="h-3.5 w-3.5" /> 刷新页面
+      </button>
       <button class="btn-primary btn-sm" :disabled="actionBusy" @click="giveBack(true)">
         <Loader2 v-if="actionBusy" class="h-3.5 w-3.5 animate-spin" /> 完成，交还给 AI
       </button>
@@ -396,6 +403,8 @@ function onPaste(e: ClipboardEvent) {
         </div>
         <p v-if="interactive" class="mt-2 text-xs text-slate-400">
           点击画面后即可操作：鼠标、滚轮、键盘与输入法都会发送到云端页面。密码不会被记录或发送给 AI。
+          如果只看到说明文字、没有“我不是机器人”勾选框，先点「刷新页面」；仍然没有，通常是验证组件的资源被网络拦截，
+          请在 config.yaml 设置 browser.proxy（与你本机代理一致）后重试，或点「跳过」。
         </p>
 
         <div v-if="metaError || disconnected" class="mt-2 flex items-center gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-200">

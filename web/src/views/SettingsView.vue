@@ -97,7 +97,7 @@ watch(defaultMode, (v) => localStorage.setItem(PREF_KEY, v))
               <h2 class="card-title">模型与执行资源</h2>
               <p class="mt-0.5 text-sm text-slate-200">模型密钥、搜索与浏览器执行资源由管理员在后台统一配置，普通使用无需自行搭建。</p>
             </div>
-            <RouterLink v-if="auth.user?.is_admin" to="/admin/llm" class="btn-primary btn-sm">前往管理后台</RouterLink>
+            <RouterLink v-if="auth.user?.is_admin" to="/admin/overview" class="btn-primary btn-sm">前往管理后台</RouterLink>
           </div>
         </section>
       </div>

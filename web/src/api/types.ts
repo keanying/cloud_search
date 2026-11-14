@@ -387,6 +387,7 @@ export type LiveServerMsg =
 
 /** 实时画面 WebSocket：客户端 → 服务端（仅人工接手期间发送） */
 export type LiveClientMsg =
+  | { type: 'reload' }
   | {
       type: 'mouse'
       action: 'move' | 'down' | 'up' | 'wheel'
@@ -494,4 +495,142 @@ export interface AgentBindingOut {
   fallback_profile_ids: string[]
   temperature: number | null
   max_tokens: number | null
+}
+
+// ---------------------------------------------------------------- 管理后台：概览、记录、设置
+export interface Paged<T> {
+  items: T[]
+  total: number
+  page: number
+  size: number
+}
+
+export interface AdminOverview {
+  totals: {
+    users: number
+    conversations: number
+    tasks: number
+    tasks_active: number
+    artifacts: number
+    sources_read: number
+  }
+  task_status: Record<string, number>
+  tasks_by_day: { date: string; total: number; completed: number; failed: number }[]
+  llm: {
+    requests: number
+    input_tokens: number
+    output_tokens: number
+    failed_runs: number
+    unknown_cost_runs: number
+    cost: { currency_code: string; minor_amt: number }[]
+  }
+  llm_by_role: {
+    role: string
+    label: string
+    requests: number
+    input_tokens: number
+    output_tokens: number
+    failed: number
+    avg_ms: number | null
+  }[]
+  llm_by_model: { provider_name: string | null; model_name: string | null; requests: number; input_tokens: number; output_tokens: number }[]
+  recent_failures: {
+    kind: 'task' | 'agent_run'
+    id: string
+    title: string
+    detail: string | null
+    time: string
+    conversation_id: string | null
+  }[]
+  engines: { name: string; label: string; kind: 'general' | 'vertical'; enabled: boolean; cooldown_until: string | null }[]
+}
+
+export interface AdminAgentRun {
+  agent_run_id: string
+  task_id: string | null
+  conversation_id: string | null
+  agent_role: string
+  role_label: string
+  provider_name: string | null
+  model_name: string | null
+  request_qty: number
+  input_token_qty: number
+  output_token_qty: number
+  cost_minor_amt: number | null
+  currency_code: string | null
+  cost_status: string
+  run_status: string
+  error_desc: string | null
+  started_time: string
+  finished_time: string | null
+  duration_ms: number | null
+}
+
+export interface AdminTask {
+  task_id: string
+  title: string
+  mode: string
+  task_status: string
+  status_reason: string | null
+  current_stage: string | null
+  username: string | null
+  display_name: string | null
+  conversation_id: string | null
+  llm_request_qty: number
+  spent_minor_amt: number
+  cost_unknown_qty: number
+  created_time: string
+  updated_time: string
+}
+
+export interface AdminUser {
+  user_id: string
+  username: string
+  display_name: string | null
+  is_admin: boolean
+  user_status: 'active' | 'disabled'
+  created_time: string
+  conversation_qty: number
+  task_qty: number
+}
+
+export type SettingType = 'engine_order' | 'select' | 'multi' | 'int' | 'bool'
+export type SettingValue = string | number | boolean | string[] | null
+
+export interface SettingField {
+  key: string
+  label: string
+  group: 'search' | 'task' | 'browser'
+  type: SettingType
+  value: SettingValue
+  default: SettingValue
+  options: { value: string; label: string }[] | null
+  min: number | null
+  max: number | null
+  help: string
+  overridden: boolean
+}
+
+export interface AdminSettings {
+  fields: SettingField[]
+  static: { group: string; items: { label: string; value: string }[] }[]
+  config_path: string
+}
+
+export type DiagnoseStatus = 'ok' | 'empty' | 'irrelevant' | 'blocked' | 'unreachable' | 'error'
+
+export interface DiagnoseResult {
+  name: string
+  label: string
+  status: DiagnoseStatus
+  count: number
+  seconds: number
+  sample: string | null
+  detail: string | null
+}
+
+export interface DiagnoseOut {
+  browser: string
+  proxy: string | null
+  results: DiagnoseResult[]
 }

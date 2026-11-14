@@ -15,12 +15,25 @@ export const router = createRouter({
         { path: 'chat/:id', name: 'chat', component: () => import('@/views/ChatView.vue'), props: true },
         { path: 'artifacts', name: 'artifacts', component: () => import('@/views/ArtifactsView.vue') },
         { path: 'settings', name: 'settings', component: () => import('@/views/SettingsView.vue') },
-        {
-          path: 'admin/llm',
-          name: 'admin-llm',
-          component: () => import('@/views/AdminLlmView.vue'),
-          meta: { admin: true },
-        },
+      ],
+    },
+    {
+      // 管理后台：独立布局（深色侧边导航），仅管理员
+      path: '/admin',
+      component: () => import('@/views/admin/AdminLayout.vue'),
+      meta: { admin: true },
+      children: [
+        { path: '', redirect: { name: 'admin-overview' } },
+        { path: 'llm', name: 'admin-llm', redirect: { name: 'admin-overview' } },
+        { path: 'overview', name: 'admin-overview', component: () => import('@/views/admin/OverviewView.vue') },
+        { path: 'providers', name: 'admin-providers', component: () => import('@/views/admin/ProvidersView.vue') },
+        { path: 'models', name: 'admin-models', component: () => import('@/views/admin/ModelsView.vue') },
+        { path: 'agents', name: 'admin-agents', component: () => import('@/views/admin/AgentsView.vue') },
+        { path: 'search', name: 'admin-search', component: () => import('@/views/admin/SearchSettingsView.vue') },
+        { path: 'limits', name: 'admin-limits', component: () => import('@/views/admin/LimitsView.vue') },
+        { path: 'tasks', name: 'admin-tasks', component: () => import('@/views/admin/TasksView.vue') },
+        { path: 'runs', name: 'admin-runs', component: () => import('@/views/admin/RunsView.vue') },
+        { path: 'users', name: 'admin-users', component: () => import('@/views/admin/UsersView.vue') },
       ],
     },
     { path: '/:pathMatch(.*)*', redirect: '/' },
@@ -48,6 +61,6 @@ router.beforeEach(async (to) => {
       return { name: 'login', query: { redirect: to.fullPath } }
     }
   }
-  if (to.meta.admin && !auth.user?.is_admin) return { name: 'home' }
+  if (to.matched.some((r) => r.meta.admin) && !auth.user?.is_admin) return { name: 'home' }
   return true
 })
