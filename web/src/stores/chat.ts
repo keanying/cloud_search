@@ -164,6 +164,8 @@ export const useChatStore = defineStore('chat', {
     },
 
     upsertTask(t: TaskOut) {
+      // 切换对话后，上一个对话迟到的响应/事件不能混进来
+      if (t.conversation_id && this.conversationId && t.conversation_id !== this.conversationId) return
       const cur = this.tasks[t.task_id]
       if (cur && cur.updated_time > t.updated_time) return
       this.tasks[t.task_id] = t

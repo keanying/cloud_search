@@ -44,7 +44,11 @@ const taskIds = computed(() => {
       if (id && !ids.includes(id)) ids.push(id)
     }
   }
-  for (const id of Object.keys(chat.tasks)) if (!ids.includes(id)) ids.push(id)
+  for (const [id, t] of Object.entries(chat.tasks)) {
+    // 只收本对话的任务（防止其他对话的任务出现在“本次任务”里）
+    if (t.conversation_id && t.conversation_id !== chat.conversationId) continue
+    if (!ids.includes(id)) ids.push(id)
+  }
   return ids
 })
 

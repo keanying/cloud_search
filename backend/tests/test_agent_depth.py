@@ -167,3 +167,28 @@ async def test_streamed_writer_retries_after_invalid_output(client, fake_llm, fa
     assert task["task_status"] == "completed", task
     assert fake_llm.calls["report_writer"] == 2
     assert any(p["part_id"].startswith("answer-") for p in msg["parts"])
+
+
+async def test_clarification_offers_options(client, fake_llm, fake_browser):
+    """澄清问题带候选选项（去重、去掉“其他”、最多 5 个）；只有问题文字时也能回答。"""
+    fake_llm.compiler_outputs.append({
+        "kind": "clarify", "reply": "范围很大，先确认几点。", "conversation_title": "副业渠道",
+        "questions": ["每周能投入多少时间？", "倾向哪类副业？"],
+        "clarify_items": [
+            {"question": "每周能投入多少时间？", "options": ["5 小时以内", "10 小时左右", "20 小时以上", "其他"]},
+            {"question": "倾向哪类副业？", "options": ["线上兼职", "技能接单", "内容变现", "技能接单", "小生意",
+                                                  "电商", "其它"], "multi": True}]})
+    h = await register(client)
+    task, msg = None, None
+    cid = (await client.post("/api/v1/conversations", json={}, headers=h)).json()["conversation_id"]
+    await client.post(f"/api/v1/conversations/{cid}/messages", headers=h,
+                      json={"client_message_id": str(uuid.uuid4()), "text": "副业渠道"})
+    await run_worker()
+    msgs = (await client.get(f"/api/v1/conversations/{cid}/messages", headers=h)).json()
+    items = msgs["items"] if isinstance(msgs, dict) else msgs
+    part = parts_of(next(m for m in reversed(items) if m["role"] == "assistant"), "clarification")[0]
+    assert part["questions"] == ["每周能投入多少时间？", "倾向哪类副业？"]
+    assert part["items"][0] == {"question": "每周能投入多少时间？", "multi": False,
+                                "options": ["5 小时以内", "10 小时左右", "20 小时以上"]}
+    assert part["items"][1]["multi"] is True
+    assert part["items"][1]["options"] == ["线上兼职", "技能接单", "内容变现", "小生意", "电商"]

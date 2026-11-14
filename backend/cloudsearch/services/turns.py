@@ -114,8 +114,15 @@ async def process_turn(message_id: str, worker_id: str) -> None:
             return
         conv = await s.get(Conversation, conv_id)
         parts: list[dict] = [{"type": "text", "part_id": "reply", "text": decision.reply, "citations": []}]
-        if decision.kind == "clarify" and decision.questions:
-            parts.append({"type": "clarification", "part_id": "clarify", "questions": decision.questions[:4]})
+        if decision.kind == "clarify" and (decision.questions or decision.clarify_items):
+            items = [{"question": it.question.strip(), "multi": it.multi,
+                      "options": [o.strip() for o in dict.fromkeys(it.options)
+                                  if o.strip() and o.strip() not in ("其他", "其它")][:5]}
+                     for it in decision.clarify_items if it.question.strip()][:4]
+            if not items:  # 模型只给了问题文字：仍可用“其他”输入框回答
+                items = [{"question": q, "options": [], "multi": False} for q in decision.questions[:4]]
+            parts.append({"type": "clarification", "part_id": "clarify",
+                          "questions": [it["question"] for it in items], "items": items})
         assistant.parts = parts
         task = None
         if decision.kind == "task" and decision.task_spec is not None:

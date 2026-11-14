@@ -75,6 +75,8 @@ export interface ClarificationPart {
   type: 'clarification'
   part_id: string
   questions: string[]
+  /** 每个问题的候选答案（界面另加“其他”输入）；旧消息可能没有 */
+  items?: { question: string; options: string[]; multi: boolean }[]
 }
 
 export interface PlanField {
