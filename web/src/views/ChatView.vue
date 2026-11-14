@@ -7,6 +7,7 @@ import MessageList from '@/components/chat/MessageList.vue'
 import RightPanel from '@/components/panel/RightPanel.vue'
 import ConversationSidebar from '@/components/chat/ConversationSidebar.vue'
 import TaskDashboard from '@/components/task/TaskDashboard.vue'
+import BrowserModal from '@/components/panel/BrowserModal.vue'
 import { WIDE_QUERY, useMedia } from '@/lib/useMedia'
 import { useUiStore } from '@/stores/ui'
 import { ChatActionsKey } from '@/lib/chatActions'
@@ -173,7 +174,9 @@ watch(
         const t = p as TakeoverPart
         if (t.state === 'requested' && !handledTakeovers.has(t.part_id)) {
           handledTakeovers.add(t.part_id)
-          panel.openBrowser(t.task_id, t.browser_session_id)
+          // 需要你处理验证：宽屏在居中大窗里打开（只显示浏览器和操作条），窄屏用右侧面板
+          if (wide.value) panel.openBrowserModal(t.task_id, t.browser_session_id)
+          else panel.openBrowser(t.task_id, t.browser_session_id)
         }
         continue
       }
@@ -308,6 +311,7 @@ watch(
         </div>
       </div>
     </Teleport>
+    <BrowserModal />
   </div>
 </template>
 

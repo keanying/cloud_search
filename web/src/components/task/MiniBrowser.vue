@@ -63,7 +63,7 @@ onBeforeUnmount(() => {
 })
 
 function maximize() {
-  panel.openBrowser(props.taskId, sessionId.value)
+  panel.openBrowserModal(props.taskId, sessionId.value) // 居中大窗，只显示浏览器
 }
 </script>
 

@@ -20,12 +20,21 @@ export const usePanelStore = defineStore('panel', {
     /** 请求以“人工接手”模式查看该会话（实际是否可操作以服务端 interactive 为准） */
     interactiveSessionId: null as string | null,
     widthPct: 40,
+    /** 居中大窗：只显示浏览器画面（从小窗点击或请求人工处理时打开） */
+    modalTaskId: null as string | null,
     /** 用户在某任务运行期间手动关闭过面板：同一任务不再自动弹出 */
     dismissedTaskIds: [] as string[],
     /** 已经自动弹出过的任务 */
     autoOpenedTaskIds: [] as string[],
   }),
   actions: {
+    openBrowserModal(taskId: string, sessionId: string | null = null) {
+      if (sessionId) this.browserSessionId = sessionId
+      this.modalTaskId = taskId
+    },
+    closeBrowserModal() {
+      this.modalTaskId = null
+    },
     openBrowser(taskId: string, sessionId: string | null = null) {
       this.type = 'browser'
       this.taskId = taskId

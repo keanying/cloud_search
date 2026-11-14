@@ -14,7 +14,8 @@ import EmptyState from '@/components/common/EmptyState.vue'
  * 默认只读；只有在任务请求人工协助（如人机验证）且用户点击“接手处理”、服务端确认 interactive 后才转发输入。
  * 打开/切换/刷新/关闭本面板都不会启动、刷新源网页或停止任务。
  */
-const props = defineProps<{ taskId: string | null }>()
+/** bare：居中大窗模式，只显示浏览器画面（以及需要你处理验证时的操作条），其他信息都不显示 */
+const props = defineProps<{ taskId: string | null; bare?: boolean }>()
 const panel = usePanelStore()
 const toast = useToastStore()
 
@@ -286,7 +287,7 @@ function onPaste(e: ClipboardEvent) {
 <template>
   <div class="flex h-full flex-col">
     <!-- 会话标签：切换只改变查看对象，不改变执行 Owner -->
-    <div v-if="sessions.length" class="hairline flex gap-1 overflow-x-auto border-b px-3 pt-2" role="tablist" aria-label="浏览器会话">
+    <div v-if="sessions.length && !bare" class="hairline flex gap-1 overflow-x-auto border-b px-3 pt-2" role="tablist" aria-label="浏览器会话">
       <button
         v-for="s in sessions"
         :key="s.browser_session_id"
@@ -345,7 +346,7 @@ function onPaste(e: ClipboardEvent) {
       <button class="btn-secondary btn-sm" :disabled="actionBusy" @click="giveBack(false)">跳过</button>
     </div>
 
-    <div class="min-h-0 flex-1 overflow-auto p-3">
+    <div class="min-h-0 flex-1 overflow-auto" :class="bare ? '' : 'p-3'">
       <EmptyState
         v-if="sessionsLoaded && !sessions.length"
         title="当前任务尚未启动浏览器"
@@ -353,8 +354,8 @@ function onPaste(e: ClipboardEvent) {
       />
       <template v-else-if="selectedId">
         <div
-          class="relative overflow-hidden rounded-xl border bg-ink-800"
-          :class="interactive ? 'border-brand-500 ring-2 ring-brand-400/50' : 'hairline'"
+          class="relative overflow-hidden bg-ink-800"
+          :class="[bare ? '' : 'rounded-xl border', interactive ? 'border-brand-500 ring-2 ring-brand-400/50' : 'hairline']"
         >
           <!-- 实时画面 -->
           <img
@@ -401,17 +402,17 @@ function onPaste(e: ClipboardEvent) {
             @paste="onPaste"
           />
         </div>
-        <p v-if="interactive" class="mt-2 text-xs text-slate-400">
+        <p v-if="interactive && !bare" class="mt-2 text-xs text-slate-400">
           点击画面后即可操作：鼠标、滚轮、键盘与输入法都会发送到云端页面。密码不会被记录或发送给 AI。
           如果只看到说明文字、没有“我不是机器人”勾选框，先点「刷新页面」；仍然没有，通常是验证组件的资源被网络拦截，
           请在 config.yaml 设置 browser.proxy（与你本机代理一致）后重试，或点「跳过」。
         </p>
 
-        <div v-if="metaError || disconnected" class="mt-2 flex items-center gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+        <div v-if="(metaError || disconnected) && !bare" class="mt-2 flex items-center gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
           <WifiOff class="h-4 w-4" /> {{ metaError || '阅览断连，云任务仍在后台运行' }}
         </div>
 
-        <dl v-if="meta || isLive" class="mt-3 space-y-1.5 text-xs">
+        <dl v-if="(meta || isLive) && !bare" class="mt-3 space-y-1.5 text-xs">
           <div class="flex gap-2">
             <dt class="w-16 shrink-0 text-slate-500">当前地址</dt>
             <dd class="min-w-0 flex-1 truncate font-mono text-slate-300" :title="shownUrl">{{ shownUrl || '—' }}</dd>
@@ -432,7 +433,7 @@ function onPaste(e: ClipboardEvent) {
       </template>
     </div>
 
-    <footer class="hairline flex flex-wrap items-center gap-x-3 gap-y-1 border-t px-3 py-2 text-xs text-slate-400">
+    <footer v-if="!bare" class="hairline flex flex-wrap items-center gap-x-3 gap-y-1 border-t px-3 py-2 text-xs text-slate-400">
       <span v-if="isLive" class="flex items-center gap-1 font-medium text-emerald-300"><Radio class="h-3.5 w-3.5" /> 实时</span>
       <span v-else class="flex items-center gap-1"><Info class="h-3.5 w-3.5" /> 定期截图 · 非实时</span>
       <span v-if="!isLive && meta?.frame_time">帧时间 {{ formatTime(meta.frame_time) }}<template v-if="frameAge != null">（{{ frameAge }} 秒前）</template></span>
