@@ -228,7 +228,11 @@ function toPage(e: MouseEvent | WheelEvent): { x: number; y: number } | null {
 const BUTTONS = ['left', 'middle', 'right'] as const
 
 function onPointer(e: PointerEvent, action: 'move' | 'down' | 'up') {
-  if (!interactive.value) return
+  if (!interactive.value) {
+    // 需要人工处理时，直接点画面即开始接手（不必先找“接手处理”按钮）
+    if (action === 'down' && handoffState.value === 'requested' && !actionBusy.value) void takeOver()
+    return
+  }
   if (action === 'move') {
     const t = performance.now()
     if (t - lastMove < 50) return // 约 20 次/秒
@@ -364,7 +368,8 @@ function onPaste(e: ClipboardEvent) {
             :src="live.frameSrc.value || ''"
             alt="云端浏览器实时画面"
             class="block w-full select-none"
-            :class="interactive ? 'cursor-crosshair' : ''"
+            :class="interactive ? 'cursor-crosshair' : handoffState === 'requested' ? 'cursor-pointer' : ''"
+            :title="!interactive && handoffState === 'requested' ? '点击画面开始接手处理' : undefined"
             draggable="false"
             @pointermove="onPointer($event, 'move')"
             @pointerdown="onPointer($event, 'down')"
@@ -385,6 +390,19 @@ function onPaste(e: ClipboardEvent) {
           </div>
           <div v-else class="flex aspect-video items-center justify-center text-sm text-slate-500">
             {{ noFrame ? '暂无画面帧' : '正在获取画面…' }}
+          </div>
+          <!-- 需要人工处理但实时画面还没连上：接手依赖实时画面，给出明确提示 -->
+          <div
+            v-if="!isLive && handoffState === 'requested' && liveEnabled"
+            class="absolute inset-x-0 top-0 z-[1] bg-amber-500/90 px-3 py-1.5 text-center text-xs font-medium text-black"
+          >
+            正在连接实时画面，连上后即可点击画面操作…
+          </div>
+          <div
+            v-else-if="!isLive && handoffState === 'requested' && !liveEnabled"
+            class="absolute inset-x-0 top-0 z-[1] bg-rose-500/90 px-3 py-1.5 text-center text-xs font-medium text-white"
+          >
+            实时画面不可用，暂时无法接手操作（可点“跳过”，或查看执行日志排查）
           </div>
           <div v-if="!isLive && (meta?.stale || ended)" class="absolute top-2 left-2 rounded-md bg-amber-500/90 px-2 py-0.5 text-xs font-medium text-black">
             {{ ended ? '会话已结束 · 最后一帧' : '画面已过期' }}

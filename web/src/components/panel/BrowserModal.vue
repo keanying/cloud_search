@@ -25,11 +25,14 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
         aria-label="云端浏览器"
         @click.self="panel.closeBrowserModal()"
       >
-        <div class="browser-window">
-          <BrowserPanel :task-id="panel.modalTaskId" bare />
+        <div class="flex flex-col items-end gap-2">
+          <!-- 关闭按钮放在窗口外面，避免挡住验证操作条右侧的「接手处理 / 完成 / 跳过」 -->
           <button class="close-btn" aria-label="关闭（不影响后台任务）" title="关闭（不影响后台任务）" @click="panel.closeBrowserModal()">
             <X class="h-4 w-4" />
           </button>
+          <div class="browser-window">
+            <BrowserPanel :task-id="panel.modalTaskId" bare />
+          </div>
         </div>
       </div>
     </Transition>
@@ -39,26 +42,22 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
 <style scoped>
 .browser-window {
   position: relative;
-  width: min(94vw, calc((100vh - 6rem) * 1.49), 1500px);
-  max-height: calc(100vh - 2rem);
-  overflow: hidden;
+  width: min(94vw, calc((100vh - 9rem) * 1.49), 1500px);
+  max-height: calc(100vh - 4.5rem);
+  overflow: auto;
   border-radius: 16px;
   background: var(--cs-surface-solid);
   box-shadow: 0 30px 80px -20px rgb(0 0 0 / 0.55);
 }
 .close-btn {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  z-index: 2;
   display: inline-flex;
   height: 32px;
   width: 32px;
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  background: rgb(17 18 20 / 0.72);
-  color: #fff;
+  background: rgb(255 255 255 / 0.92);
+  color: #111214;
 }
 .cs-modal-enter-active,
 .cs-modal-leave-active {

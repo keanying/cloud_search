@@ -22,7 +22,8 @@ const session = computed(
     null,
 )
 const sessionId = computed(() => session.value?.browser_session_id ?? null)
-const liveOn = computed(() => props.active && !collapsed.value && !!sessionId.value)
+// 居中大窗打开时小窗暂停实时连接：画面与操作都只走大窗这一条连接
+const liveOn = computed(() => props.active && !collapsed.value && !!sessionId.value && !panel.modalTaskId)
 const live = useLiveView(sessionId, liveOn)
 const src = computed(() => (live.connected.value && live.frameSrc.value) || snapUrl.value)
 const needsHuman = computed(() => !!session.value && ['requested', 'active'].includes(session.value.handoff_state ?? ''))
