@@ -16,7 +16,17 @@ from ...core import runtime
 from ...core.config import get_settings
 from ...core.ids import utcnow
 from ...db.base import get_session
-from ...db.models import AgentRun, Artifact, Conversation, SourceRevision, SystemSetting, Task, User
+from ...db.models import (
+    AgentRun,
+    Artifact,
+    Conversation,
+    SourceRevision,
+    SystemSetting,
+    Task,
+    TaskRun,
+    TaskStep,
+    User,
+)
 from ..deps import CurrentUser, admin_user
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -214,14 +224,75 @@ async def tasks(page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100),
         stmt = stmt.where(or_(Task.title.like(like), Task.task_id.like(like), User.username.like(like)))
     total = await _count(s, stmt)
     rows = (await s.execute(stmt.order_by(Task.created_time.desc()).offset((page - 1) * size).limit(size))).all()
-    items = [{
+    items = [_task_item(t, u) for t, u in rows]
+    return _page(items, total, page, size)
+
+
+def _task_item(t: Task, u: User | None) -> dict:
+    return {
         "task_id": t.task_id, "title": t.title, "mode": t.mode, "task_status": t.task_status,
         "status_reason": t.status_reason, "current_stage": t.current_stage,
         "username": u.username if u else None, "display_name": u.display_name if u else None,
         "conversation_id": t.conversation_id, "llm_request_qty": t.llm_request_qty,
         "spent_minor_amt": t.spent_minor_amt, "cost_unknown_qty": t.cost_unknown_qty,
-        "created_time": _iso(t.created_time), "updated_time": _iso(t.updated_time)} for t, u in rows]
-    return _page(items, total, page, size)
+        "created_time": _iso(t.created_time), "updated_time": _iso(t.updated_time)}
+
+
+def _ms(a, b) -> int | None:
+    return int((b - a).total_seconds() * 1000) if a and b else None
+
+
+@router.get("/tasks/{task_id}")
+async def task_detail(task_id: str, _: CurrentUser = Depends(admin_user),
+                      s: AsyncSession = Depends(get_session)) -> dict:
+    """任务详情（后台抽屉）：需求、执行轮次、步骤、来源、模型用量、成果。"""
+    from ...search import credibility
+
+    t = await s.get(Task, task_id)
+    if t is None:
+        raise HTTPException(404, "任务不存在")
+    u = await s.get(User, t.created_by_id)
+    spec = t.task_spec or {}
+    runs = (await s.execute(select(TaskRun).where(TaskRun.task_id == task_id)
+                            .order_by(TaskRun.run_seq_no.desc()))).scalars().all()
+    steps = (await s.execute(select(TaskStep).where(TaskStep.task_id == task_id)
+                             .order_by(TaskStep.created_time))).scalars().all()
+    srcs = (await s.execute(select(SourceRevision).where(SourceRevision.task_id == task_id)
+                            .order_by(SourceRevision.source_no))).scalars().all()
+    agg = (await s.execute(select(func.coalesce(func.sum(AgentRun.request_qty), 0),
+                                  func.coalesce(func.sum(AgentRun.input_token_qty), 0),
+                                  func.coalesce(func.sum(AgentRun.output_token_qty), 0),
+                                  func.count()).where(AgentRun.task_id == task_id))).one()
+    failed_runs = (await s.execute(select(func.count()).select_from(AgentRun).where(
+        AgentRun.task_id == task_id, AgentRun.run_status != "succeeded"))).scalar() or 0
+    arts = (await s.execute(select(Artifact).where(Artifact.task_id == task_id)
+                            .order_by(Artifact.created_time))).scalars().all()
+    by_status: dict[str, int] = {}
+    for r in srcs:
+        by_status[r.revision_status] = by_status.get(r.revision_status, 0) + 1
+    return {
+        "task": _task_item(t, u),
+        "spec": {"requirement_text": spec.get("requirement_text"), "questions": (spec.get("scope") or {}).get("questions", []),
+                 "limits": spec.get("limits") or {}, "output_formats": spec.get("output_formats") or []},
+        "error_desc": (t.result_summary or {}).get("error_desc"),
+        "runs": [{"run_id": r.run_id, "run_seq_no": r.run_seq_no, "run_status": r.run_status, "worker_id": r.worker_id,
+                  "started_time": _iso(r.started_time), "finished_time": _iso(r.finished_time),
+                  "duration_ms": _ms(r.started_time, r.finished_time)} for r in runs],
+        "steps": [{"step_id": st.step_id, "node_id": st.node_id, "node_kind": st.node_kind, "agent_role": st.agent_role,
+                   "role_label": ROLE_INFO.get(st.agent_role, (st.agent_role,))[0] if st.agent_role else None,
+                   "step_status": st.step_status, "attempt_no": st.attempt_no, "error_desc": st.error_desc,
+                   "started_time": _iso(st.started_time), "duration_ms": _ms(st.started_time, st.finished_time)}
+                  for st in steps][-80:],
+        "sources": {"by_status": by_status, "items": [{
+            "source_no": r.source_no, "title": r.title, "url": r.final_url or r.request_url, "site_name": r.site_name,
+            "revision_status": r.revision_status, "failure_reason": r.failure_reason,
+            "credibility_label": credibility.label(r.final_url or r.request_url)} for r in srcs][:40]},
+        "llm": {"requests": int(agg[0]), "input_tokens": int(agg[1]), "output_tokens": int(agg[2]),
+                "calls": int(agg[3]), "failed": int(failed_runs)},
+        "artifacts": [{"artifact_id": a.artifact_id, "display_name": a.display_name, "artifact_kind": a.artifact_kind,
+                       "byte_qty": a.byte_qty, "record_qty": a.record_qty, "created_time": _iso(a.created_time)}
+                      for a in arts],
+    }
 
 
 async def _user_item(s: AsyncSession, u: User) -> dict:
@@ -245,6 +316,21 @@ async def users(page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100),
     rows = (await s.execute(stmt.order_by(User.created_time.desc()).offset((page - 1) * size).limit(size)
                             )).scalars().all()
     return _page([await _user_item(s, u) for u in rows], total, page, size)
+
+
+@router.get("/users/{user_id}")
+async def user_detail(user_id: str, _: CurrentUser = Depends(admin_user),
+                      s: AsyncSession = Depends(get_session)) -> dict:
+    u = await s.get(User, user_id)
+    if u is None:
+        raise HTTPException(404, "用户不存在")
+    recent = (await s.execute(select(Task).where(Task.created_by_id == user_id, Task.task_status != "draft")
+                              .order_by(Task.created_time.desc()).limit(10))).scalars().all()
+    agg = (await s.execute(select(func.coalesce(func.sum(AgentRun.request_qty), 0),
+                                  func.coalesce(func.sum(AgentRun.input_token_qty + AgentRun.output_token_qty), 0))
+                           .join(Task, Task.task_id == AgentRun.task_id).where(Task.created_by_id == user_id))).one()
+    return {"user": await _user_item(s, u), "llm_requests": int(agg[0]), "tokens": int(agg[1]),
+            "recent_tasks": [_task_item(t, u) for t in recent]}
 
 
 class UserPatch(BaseModel):

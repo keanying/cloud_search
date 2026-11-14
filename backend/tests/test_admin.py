@@ -41,10 +41,21 @@ async def test_overview_and_lists(client, fake_llm, fake_browser):
     assert tasks["items"][0]["conversation_id"] == cid
     assert (await client.get("/api/v1/admin/tasks?status=active", headers=admin)).json()["total"] == 0
 
+    tid = tasks["items"][0]["task_id"]
+    d = (await client.get(f"/api/v1/admin/tasks/{tid}", headers=admin)).json()
+    assert d["task"]["task_id"] == tid and d["spec"]["requirement_text"]
+    assert d["runs"] and d["runs"][0]["run_status"] == "completed"
+    assert any(st["agent_role"] == "extractor" and st["role_label"] == "信息抽取" for st in d["steps"])
+    assert d["sources"]["by_status"] == {"captured": 2} and d["sources"]["items"][0]["credibility_label"]
+    assert d["llm"]["requests"] >= 4 and d["llm"]["failed"] == 0
+    assert (await client.get("/api/v1/admin/tasks/nope", headers=admin)).status_code == 404
+
     users = (await client.get("/api/v1/admin/users", headers=admin)).json()
     assert users["total"] == 2
     me = next(u for u in users["items"] if u["username"] == "admin")
     assert me["is_admin"] and me["task_qty"] == 1 and me["conversation_qty"] == 1
+    ud = (await client.get(f"/api/v1/admin/users/{me['user_id']}", headers=admin)).json()
+    assert ud["llm_requests"] >= 4 and ud["recent_tasks"][0]["task_id"] == tid
 
 
 async def test_user_management_guards(client, env):
