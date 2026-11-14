@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { MessageOut } from '@/api/types'
+import type { FilePart, MessageOut } from '@/api/types'
 import BrandLogo from '@/components/common/BrandLogo.vue'
 import MessagePartView from '@/components/parts/MessagePartView.vue'
 import AnswerToolbar from './AnswerToolbar.vue'
+import FileCard from '@/components/files/FileCard.vue'
+import { usePanelStore } from '@/stores/panel'
+import { useChatStore } from '@/stores/chat'
 import { modeLabel } from '@/lib/format'
 
 const props = defineProps<{ message: MessageOut; latest?: boolean }>()
@@ -20,13 +23,49 @@ const citeTaskId = computed(() => {
   return sp?.task_id ?? props.message.task_ids[0] ?? null
 })
 const pending = computed(() => props.message.message_status === 'pending')
+const panel = usePanelStore()
+const chat = useChatStore()
+/** 附件：优先用会话里的最新文件状态（解析器、页数），否则用消息片段 */
+const files = computed(() =>
+  (props.message.parts.filter((p) => p.type === 'file') as FilePart[]).map((p) => {
+    const f = chat.files[p.file_id]
+    return {
+      id: p.file_id,
+      name: p.name,
+      ext: p.ext,
+      byteQty: p.byte_qty,
+      status: f?.parse_status ?? p.parse_status,
+      pages: f?.page_qty ?? p.page_qty,
+      parser: f?.parser ?? null,
+      detail: f?.parse_detail ?? p.parse_detail,
+      error: f?.parse_error ?? p.parse_error,
+    }
+  }),
+)
 </script>
 
 <template>
   <div v-if="message.role === 'user'" class="flex justify-end">
     <div class="max-w-[82%]">
-      <div class="user-bubble rounded-[26px] rounded-br-lg px-5 py-3 text-[16px] leading-7 whitespace-pre-wrap">
+      <div class="user-bubble ml-auto w-fit max-w-full rounded-[26px] rounded-br-lg px-5 py-3 text-[16px] leading-7 whitespace-pre-wrap">
         {{ userText }}
+      </div>
+      <div v-if="files.length" class="mt-2 ml-auto grid w-fit max-w-full gap-1.5" :class="files.length > 1 ? 'sm:grid-cols-2' : ''">
+        <FileCard
+          v-for="f in files"
+          :key="f.id"
+          class="w-[260px] max-w-full"
+          compact
+          :name="f.name"
+          :ext="f.ext"
+          :byte-qty="f.byteQty"
+          :status="f.status"
+          :pages="f.pages"
+          :parser="f.parser"
+          :detail="f.detail"
+          :error="f.error"
+          @open="panel.openFile(f.id)"
+        />
       </div>
       <div v-if="message.mode_selection && message.mode_selection !== 'auto'" class="mt-1.5 flex justify-end">
         <span class="pill sunken hairline border text-slate-400">{{ modeLabel(message.mode_selection) }}</span>

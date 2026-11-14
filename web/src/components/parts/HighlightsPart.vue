@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import type { HighlightsPart } from '@/api/types'
 import { usePanelStore } from '@/stores/panel'
+import { fileIdFromUrl } from '@/lib/fileTypes'
 
 const props = defineProps<{ part: HighlightsPart; taskId?: string | null }>()
 const panel = usePanelStore()
 const TONES = ['mint', 'sky', 'lilac', 'butter'] as const
 
 function open(n: number, url?: string | null) {
+  const fid = fileIdFromUrl(url)
+  if (fid) return panel.openFile(fid)
   if (props.taskId) panel.openSources(props.taskId, n)
   else if (url) window.open(url, '_blank', 'noopener')
 }

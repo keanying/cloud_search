@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { FileText, Globe, Library, X } from 'lucide-vue-next'
+import { FileText, Globe, Library, Paperclip, X } from 'lucide-vue-next'
 import { usePanelStore, type PanelType } from '@/stores/panel'
 import { useChatStore } from '@/stores/chat'
 import BrowserPanel from './BrowserPanel.vue'
 import SourcesPanel from './SourcesPanel.vue'
 import ArtifactPanel from './ArtifactPanel.vue'
+import FilePanel from '@/components/files/FilePanel.vue'
 
 const panel = usePanelStore()
 const chat = useChatStore()
@@ -19,6 +20,7 @@ const tabs = computed(() => {
     { type: 'sources', label: '来源', icon: Library },
   ]
   if (panel.artifactId) t.push({ type: 'artifact', label: '成果', icon: FileText })
+  if (panel.fileId) t.push({ type: 'file', label: '文件', icon: Paperclip })
   return t
 })
 
@@ -103,9 +105,9 @@ function onKeyResize(e: KeyboardEvent) {
         >✋ 人工操作</span>
         <span v-else-if="panel.type === 'browser'" class="pill card-mint accent-ink">👀 只读阅览</span>
         <div class="flex-1" />
-        <label v-if="panel.type !== 'artifact' && taskOptions.length > 1" class="sr-only" for="cs-panel-task">选择任务</label>
+        <label v-if="!['artifact', 'file'].includes(panel.type) && taskOptions.length > 1" class="sr-only" for="cs-panel-task">选择任务</label>
         <select
-          v-if="panel.type !== 'artifact' && taskOptions.length > 1"
+          v-if="!['artifact', 'file'].includes(panel.type) && taskOptions.length > 1"
           id="cs-panel-task"
           v-model="panel.taskId"
           class="input max-w-[160px] truncate !rounded-full !py-1.5 !text-xs"
@@ -118,6 +120,7 @@ function onKeyResize(e: KeyboardEvent) {
       <div class="min-h-0 flex-1">
         <BrowserPanel v-if="panel.type === 'browser'" :task-id="panel.taskId" />
         <SourcesPanel v-else-if="panel.type === 'sources'" :task-id="panel.taskId" :focus-n="panel.focusN" />
+        <FilePanel v-else-if="panel.type === 'file'" :file-id="panel.fileId" />
         <ArtifactPanel v-else :artifact-id="panel.artifactId" />
       </div>
     </aside>

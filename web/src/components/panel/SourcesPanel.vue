@@ -1,14 +1,22 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { ExternalLink, Quote, Search } from 'lucide-vue-next'
+import { ExternalLink, FileText, Quote, Search } from 'lucide-vue-next'
 import type { TaskSourcesOut } from '@/api/types'
 import { api } from '@/api/client'
 import { ACCESS_METHOD_LABEL, ACTIVE_STATUSES, formatTime, hostOf, qualityLabel } from '@/lib/format'
 import { useChatStore } from '@/stores/chat'
+import { usePanelStore } from '@/stores/panel'
+import { fileIdFromUrl } from '@/lib/fileTypes'
+import type { SourceOut } from '@/api/types'
 import EmptyState from '@/components/common/EmptyState.vue'
 
 const props = defineProps<{ taskId: string | null; focusN: number | null }>()
 const chat = useChatStore()
+const panel = usePanelStore()
+/** 上传文件来源：url 形如 file:<file_id>#<k> */
+function fileIdOf(s: SourceOut): string | null {
+  return s.access_method === 'user_file' ? fileIdFromUrl(s.final_url || s.request_url) : null
+}
 const data = ref<TaskSourcesOut | null>(null)
 const error = ref<string | null>(null)
 const root = ref<HTMLElement | null>(null)
@@ -78,7 +86,18 @@ onBeforeUnmount(() => window.clearInterval(timer))
           <div class="flex items-start gap-2">
             <span class="mt-0.5 flex h-5 min-w-5 items-center justify-center rounded-md bg-brand-500/25 px-1 text-[11px] font-semibold text-brand-300">{{ s.n }}</span>
             <div class="min-w-0 flex-1">
+              <button
+                v-if="fileIdOf(s)"
+                type="button"
+                class="group inline-flex items-start gap-1.5 text-left text-sm font-medium text-white hover:text-brand-300"
+                @click="panel.openFile(fileIdOf(s)!)"
+              >
+                <FileText class="mt-0.5 h-4 w-4 shrink-0 text-brand-300" />
+                <span class="line-clamp-2">{{ s.title }}</span>
+                <span class="pill card-mint ml-1 shrink-0 accent-ink">你上传的文件</span>
+              </button>
               <a
+                v-else
                 :href="s.final_url || s.request_url"
                 target="_blank"
                 rel="noopener noreferrer nofollow"
@@ -87,8 +106,12 @@ onBeforeUnmount(() => window.clearInterval(timer))
                 <span class="line-clamp-2">{{ s.title || s.final_url || s.request_url }}</span>
                 <ExternalLink class="mt-0.5 h-3.5 w-3.5 shrink-0 opacity-60 group-hover:opacity-100" />
               </a>
-              <div class="mt-0.5 truncate text-xs text-slate-500">{{ s.final_url || s.request_url }}</div>
-              <div class="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-400">
+              <div v-if="!fileIdOf(s)" class="mt-0.5 truncate text-xs text-slate-500">{{ s.final_url || s.request_url }}</div>
+              <div v-if="fileIdOf(s)" class="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-400">
+                <span>读取于 {{ formatTime(s.retrieved_time) }}</span>
+                <button type="button" class="font-semibold text-brand-300 hover:underline" @click="panel.openFile(fileIdOf(s)!)">查看文件</button>
+              </div>
+              <div v-else class="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-400">
                 <span>发布主体：{{ s.site_name || hostOf(s.final_url || s.request_url) || '未知' }}</span>
                 <span v-if="s.author">作者：{{ s.author }}</span>
                 <span>发布时间：{{ s.publish_time_text || '未知' }}</span>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, provide, ref, watch } from 'vue'
-import { LayoutDashboard, Loader2, PanelLeftOpen, WifiOff } from 'lucide-vue-next'
+import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
+import { FileUp, LayoutDashboard, Loader2, PanelLeftOpen, WifiOff } from 'lucide-vue-next'
 import type { ModeSelection } from '@/api/types'
 import ChatComposer from '@/components/chat/ChatComposer.vue'
 import MessageList from '@/components/chat/MessageList.vue'
@@ -17,6 +17,7 @@ import type { ProgressPart, TakeoverPart } from '@/api/types'
 import { ACTIVE_STATUSES } from '@/lib/format'
 import { usePanelStore } from '@/stores/panel'
 import { useToastStore } from '@/stores/toast'
+import { useAttachments } from '@/lib/useAttachments'
 
 const props = defineProps<{ id: string }>()
 const chat = useChatStore()
@@ -42,6 +43,57 @@ const composer = ref<InstanceType<typeof ChatComposer> | null>(null)
 const list = ref<InstanceType<typeof MessageList> | null>(null)
 const stopSubmitting = ref(false)
 
+// ---------------------------------------------------------------- 附件：选择 / 拖放 / 粘贴后立即上传
+const attachments = useAttachments(async () => props.id)
+watch(
+  () => chat.files,
+  (files) => {
+    for (const a of attachments.items.value) {
+      const f = a.file && files[a.file.file_id]
+      if (f) attachments.apply(f)
+    }
+  },
+  { deep: true },
+)
+const dragDepth = ref(0)
+const dragging = computed(() => dragDepth.value > 0)
+function hasFiles(e: DragEvent) {
+  return Array.from(e.dataTransfer?.types ?? []).includes('Files')
+}
+function onDragEnter(e: DragEvent) {
+  if (!hasFiles(e)) return
+  e.preventDefault()
+  dragDepth.value++
+}
+function onDragOver(e: DragEvent) {
+  if (!hasFiles(e)) return
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+}
+function onDragLeave(e: DragEvent) {
+  if (!hasFiles(e)) return
+  dragDepth.value = Math.max(0, dragDepth.value - 1)
+}
+// 拖到对话区以外时阻止浏览器直接打开文件
+function blockWindowDrop(e: DragEvent) {
+  if (hasFiles(e)) e.preventDefault()
+}
+onMounted(() => {
+  window.addEventListener('dragover', blockWindowDrop)
+  window.addEventListener('drop', blockWindowDrop)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('dragover', blockWindowDrop)
+  window.removeEventListener('drop', blockWindowDrop)
+})
+function onDrop(e: DragEvent) {
+  if (!hasFiles(e)) return
+  e.preventDefault()
+  dragDepth.value = 0
+  attachments.add(e.dataTransfer?.files)
+  composer.value?.focus()
+}
+
 provide(ChatActionsKey, {
   focusComposer(h?: string) {
     hint.value = h ?? null
@@ -63,6 +115,7 @@ watch(
     ui.setLastChat(id)
     text.value = ''
     hint.value = null
+    attachments.clear()
     await chat.open(id)
     list.value?.scrollToBottom(false)
   },
@@ -74,9 +127,11 @@ onBeforeUnmount(() => chat.close())
 
 async function submit() {
   const t = text.value.trim()
-  if (!t) return
+  const fileIds = attachments.fileIds.value
+  if ((!t && !fileIds.length) || attachments.uploading.value) return
   try {
-    await chat.send(t, mode.value)
+    await chat.send(t, mode.value, fileIds)
+    attachments.clear()
     text.value = ''
     hint.value = null
     list.value?.scrollToBottom()
@@ -155,7 +210,20 @@ watch(
     />
 
     <!-- 中：对话 -->
-    <section class="flex min-w-0 flex-1 flex-col">
+    <section
+      class="relative flex min-w-0 flex-1 flex-col"
+      @dragenter="onDragEnter"
+      @dragover="onDragOver"
+      @dragleave="onDragLeave"
+      @drop="onDrop"
+    >
+      <div v-if="dragging" class="drop-overlay" aria-hidden="true">
+        <div class="drop-box">
+          <FileUp class="h-8 w-8" />
+          <div class="text-lg font-bold">松开即可上传</div>
+          <div class="text-sm opacity-80">PDF、Word、Excel、PPT、图片、TXT / Markdown… 单个不超过 100MB</div>
+        </div>
+      </div>
       <div class="mx-auto flex w-full max-w-[860px] items-center gap-2 px-4 pt-1 pb-2 md:px-6">
         <button
           v-if="wide && ui.sidebarCollapsed"
@@ -206,10 +274,16 @@ watch(
           :disabled="!!chat.loadError"
           placeholder="继续补充要求…"
           :show-stop="chat.hasActive"
+          :attachments="attachments.items.value"
+          :uploading="attachments.uploading.value"
           :stopping="chat.isStopping || stopSubmitting"
           stop-hint="停止最近一轮关联的任务；已提交成果会保留"
           @submit="submit"
           @stop="stopTurn"
+          @pick="attachments.add"
+          @remove-file="attachments.remove"
+          @retry-file="attachments.retry"
+          @open-file="panel.openFile"
         />
       </div>
     </section>
@@ -235,3 +309,32 @@ watch(
     </Teleport>
   </div>
 </template>
+
+<style scoped>
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  border-radius: 28px;
+  background-color: color-mix(in srgb, var(--cs-bg) 78%, transparent);
+  pointer-events: none;
+}
+.drop-box {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 2px dashed var(--pastel-mint-dot);
+  border-radius: 24px;
+  background-color: var(--pastel-mint);
+  color: var(--pastel-mint-ink);
+  text-align: center;
+}
+</style>

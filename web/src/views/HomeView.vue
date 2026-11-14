@@ -15,6 +15,7 @@ import { usePanelStore } from '@/stores/panel'
 import { usePrefsStore } from '@/stores/prefs'
 import { useToastStore } from '@/stores/toast'
 import { useUiStore } from '@/stores/ui'
+import { useAttachments } from '@/lib/useAttachments'
 
 // 首屏之下的产品介绍单独成包，首屏搜索框立即可用
 const LandingSections = defineAsyncComponent(() => import('@/components/landing/LandingSections.vue'))
@@ -40,6 +41,18 @@ const scroller = ref<HTMLElement | null>(null)
 const hero = ref<HTMLElement | null>(null)
 
 const loggedIn = computed(() => !!auth.user)
+
+// 首页附件：第一次上传时先建好对话（发送时沿用这个对话）
+const homeConvId = ref<string | null>(null)
+async function ensureConversation(): Promise<string> {
+  if (!homeConvId.value) {
+    const conv = await api.createConversation()
+    convs.upsert(conv)
+    homeConvId.value = conv.conversation_id
+  }
+  return homeConvId.value
+}
+const attachments = useAttachments(ensureConversation)
 // 未登录访客只显示模式类快捷入口（最近对话/成果需要登录）
 const shortcuts = computed(() =>
   visibleActions(!!auth.user?.is_admin, 'home').filter((a) => loggedIn.value || !!a.mode),
@@ -148,7 +161,8 @@ onBeforeUnmount(() => {
 
 async function submit() {
   const t = text.value.trim()
-  if (!t || sending.value) return
+  const fileIds = attachments.fileIds.value
+  if ((!t && !fileIds.length) || sending.value || attachments.uploading.value) return
   if (!loggedIn.value) {
     // 未登录：保存草稿，登录/注册后回到首页恢复
     sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ text: t, mode: mode.value }))
@@ -157,12 +171,13 @@ async function submit() {
   }
   sending.value = true
   try {
-    const conv = await api.createConversation()
-    convs.upsert(conv)
-    await chat.open(conv.conversation_id)
-    await chat.send(t, mode.value)
+    const cid = await ensureConversation()
+    await chat.open(cid)
+    await chat.send(t, mode.value, fileIds)
     text.value = ''
-    router.push({ name: 'chat', params: { id: conv.conversation_id } })
+    attachments.clear()
+    homeConvId.value = null
+    router.push({ name: 'chat', params: { id: cid } })
   } catch (e) {
     // 发送失败时保留输入内容，不显示伪成功
     toast.error(e, '发送失败，输入内容已保留')
@@ -191,7 +206,12 @@ const last = computed(() => convs.items.find((c) => c.conversation_status === 'a
             variant="home"
             :sending="sending"
             placeholder="搜索问题，或描述想采集的数据、想要的报告…"
+            :attachments="loggedIn ? attachments.items.value : undefined"
+            :uploading="attachments.uploading.value"
             @submit="submit"
+            @pick="attachments.add"
+            @remove-file="attachments.remove"
+            @retry-file="attachments.retry"
           />
           <p v-if="!loggedIn" class="mt-2 text-center text-xs text-slate-500">登录后即可发送，输入的内容会为你保留</p>
         </div>

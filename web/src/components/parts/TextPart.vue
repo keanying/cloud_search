@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import type { Citation, TextPart } from '@/api/types'
 import CitePreview from './CitePreview.vue'
+import { fileIdFromUrl } from '@/lib/fileTypes'
 import { renderMarkdown, splitCharts } from '@/lib/markdown'
 import { usePanelStore } from '@/stores/panel'
 import ChartBlock from './ChartBlock.vue'
@@ -55,11 +56,15 @@ onBeforeUnmount(() => {
 
 function openCite(n: number) {
   hoverCite.value = null
-  if (props.taskId) panel.openSources(props.taskId, n)
-  else {
-    const c = props.part.citations?.find((x) => x.n === n)
-    if (c?.url) window.open(c.url, '_blank', 'noopener')
-  }
+  const c = props.part.citations?.find((x) => x.n === n)
+  const fid = fileIdFromUrl(c?.url)
+  if (fid) panel.openFile(fid) // 引用的是上传的文件：直接预览文件
+  else if (props.taskId) panel.openSources(props.taskId, n)
+  else if (c?.url) window.open(c.url, '_blank', 'noopener')
+}
+function openFile(fid: string) {
+  hoverCite.value = null
+  panel.openFile(fid)
 }
 
 function onClick(e: MouseEvent) {
@@ -67,11 +72,11 @@ function onClick(e: MouseEvent) {
   if (!el) return
   const n = Number(el.dataset.cite)
   hoverCite.value = null
-  if (props.taskId) panel.openSources(props.taskId, n)
-  else {
-    const c = props.part.citations?.find((x) => x.n === n)
-    if (c?.url) window.open(c.url, '_blank', 'noopener')
-  }
+  const c = props.part.citations?.find((x) => x.n === n)
+  const fid = fileIdFromUrl(c?.url)
+  if (fid) panel.openFile(fid) // 引用的是上传的文件：直接预览文件
+  else if (props.taskId) panel.openSources(props.taskId, n)
+  else if (c?.url) window.open(c.url, '_blank', 'noopener')
 }
 </script>
 
@@ -89,6 +94,7 @@ function onClick(e: MouseEvent) {
     @enter="show(hoverEl!)"
     @leave="hideSoon"
     @open="openCite"
+    @open-file="openFile"
   />
   <span v-if="streaming" class="ml-1 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-brand-300 align-middle" aria-label="生成中" />
 </template>

@@ -8,6 +8,8 @@ import type {
   AdminUser,
   AdminUserDetail,
   DiagnoseOut,
+  FileContentOut,
+  FileOut,
   Paged,
   SettingValue,
   AgentBindingIn,
@@ -135,6 +137,17 @@ const del = <T>(p: string) => request<T>('DELETE', p)
 
 const enc = encodeURIComponent
 
+function saveBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 2000)
+}
+
 export const api = {
   // 认证
   register: (b: { username: string; password: string; display_name?: string | null }) =>
@@ -155,6 +168,45 @@ export const api = {
   conversationTasks: (id: string) => get<TaskOut[]>(`/conversations/${enc(id)}/tasks`),
   stopTurn: (id: string, turnId?: string | null) =>
     post<StopTurnOut>(`/conversations/${enc(id)}/stop-turn`, turnId ? { turn_id: turnId } : {}),
+
+  // 上传文件
+  listFiles: (cid: string) => get<FileOut[]>(`/conversations/${enc(cid)}/files`),
+  getFile: (id: string) => get<FileOut>(`/files/${enc(id)}`),
+  fileContent: (id: string) => get<FileContentOut>(`/files/${enc(id)}/content`),
+  reparseFile: (id: string) => post<FileOut>(`/files/${enc(id)}/reparse`),
+  deleteFile: (id: string) => del<void>(`/files/${enc(id)}`),
+  downloadFile: async (id: string, filename: string) => {
+    const res = await rawFetch(`/files/${enc(id)}/download`)
+    saveBlob(await res.blob(), filename)
+  },
+  /** 上传单个文件（XHR，便于显示上传进度） */
+  uploadFile: (cid: string, file: File, onProgress?: (pct: number) => void, signal?: AbortSignal) =>
+    new Promise<FileOut>((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('POST', `${API_BASE}/conversations/${enc(cid)}/files`)
+      const t = getToken()
+      if (t) xhr.setRequestHeader('Authorization', `Bearer ${t}`)
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100))
+      }
+      xhr.onload = () => {
+        let body: unknown = null
+        try {
+          body = JSON.parse(xhr.responseText)
+        } catch {
+          /* ignore */
+        }
+        if (xhr.status === 401) unauthorizedHandler?.()
+        if (xhr.status >= 200 && xhr.status < 300 && Array.isArray(body) && body.length) resolve(body[0] as FileOut)
+        else reject(new ApiError(xhr.status, errorMessage(xhr.status, body), body))
+      }
+      xhr.onerror = () => reject(new ApiError(0, '网络连接失败，请检查网络后重试'))
+      xhr.onabort = () => reject(new ApiError(0, '已取消上传'))
+      signal?.addEventListener('abort', () => xhr.abort())
+      const fd = new FormData()
+      fd.append('files', file, file.name)
+      xhr.send(fd)
+    }),
 
   // 任务
   getTask: (id: string) => get<TaskOut>(`/tasks/${enc(id)}`),
@@ -194,15 +246,7 @@ export const api = {
   artifactPreview: (id: string) => get<ArtifactPreviewOut>(`/artifacts/${enc(id)}/preview`),
   downloadArtifact: async (id: string, filename: string) => {
     const res = await rawFetch(`/artifacts/${enc(id)}/download`)
-    const blob = await res.blob()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    setTimeout(() => URL.revokeObjectURL(url), 2000)
+    saveBlob(await res.blob(), filename)
   },
 
   // 大模型管理

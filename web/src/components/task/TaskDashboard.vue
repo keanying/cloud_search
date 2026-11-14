@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { ArrowUpRight, ChevronDown, Download, FileBarChart, FileSpreadsheet, FileText, Globe, Library, X } from 'lucide-vue-next'
+import { ArrowUpRight, ChevronDown, Download, FileBarChart, FileSpreadsheet, FileText, Globe, Library, Paperclip, X } from 'lucide-vue-next'
 import type { ArtifactFormat, ArtifactPart, ProgressPart, SourceOut, TakeoverPart as TakeoverPartT } from '@/api/types'
 import { api } from '@/api/client'
 import {
@@ -21,6 +21,8 @@ import StatusBadge from '@/components/common/StatusBadge.vue'
 import TakeoverPart from '@/components/parts/TakeoverPart.vue'
 import StageTimeline from './StageTimeline.vue'
 import StatTiles from './StatTiles.vue'
+import FileCard from '@/components/files/FileCard.vue'
+import { fileIdFromUrl } from '@/lib/fileTypes'
 
 /** 右侧“本次任务”看板：统计、阶段时间线、人工协助、最新来源、成果 */
 defineProps<{ closable?: boolean }>()
@@ -159,6 +161,9 @@ function badgeTone(s: SourceOut) {
   for (const ch of h) n = (n + ch.charCodeAt(0)) % 997
   return BADGE_TONES[n % BADGE_TONES.length]
 }
+function sourceFileId(s: SourceOut): string | null {
+  return s.access_method === 'user_file' ? fileIdFromUrl(s.final_url || s.request_url) : null
+}
 function siteName(s: SourceOut) {
   return s.site_name || hostOf(s.final_url || s.request_url).replace(/^www\./, '')
 }
@@ -242,7 +247,22 @@ function siteName(s: SourceOut) {
           </div>
           <ul class="-mx-1">
             <li v-for="s in sources" :key="s.source_revision_id">
+              <button
+                v-if="sourceFileId(s)"
+                type="button"
+                class="group flex w-full items-center gap-3 rounded-2xl px-1 py-1.5 text-left hover:bg-white/5"
+                @click="panel.openFile(sourceFileId(s)!)"
+              >
+                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl card-mint accent-ink">
+                  <FileText class="h-4 w-4" />
+                </span>
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate text-xs text-slate-400">你上传的文件</span>
+                  <span class="block truncate text-sm font-medium text-slate-100">{{ s.title }}</span>
+                </span>
+              </button>
               <a
+                v-else
                 :href="s.final_url || s.request_url"
                 target="_blank"
                 rel="noopener noreferrer"
@@ -261,6 +281,30 @@ function siteName(s: SourceOut) {
           </ul>
         </section>
       </template>
+
+      <!-- 对话中的文件 -->
+      <section v-if="chat.sentFiles.length" class="surface p-4">
+        <h3 class="mb-2 flex items-center gap-1.5 text-sm font-bold text-white">
+          <Paperclip class="h-4 w-4" /> 对话中的文件
+          <span class="text-xs font-semibold text-slate-400">{{ chat.sentFiles.length }}</span>
+        </h3>
+        <div class="space-y-1.5">
+          <FileCard
+            v-for="f in chat.sentFiles"
+            :key="f.file_id"
+            compact
+            :name="f.name"
+            :ext="f.ext"
+            :byte-qty="f.byte_qty"
+            :status="f.parse_status"
+            :pages="f.page_qty"
+            :parser="f.parser"
+            :detail="f.parse_detail"
+            :error="f.parse_error"
+            @open="panel.openFile(f.file_id)"
+          />
+        </div>
+      </section>
 
       <!-- 成果 -->
       <section v-if="outputs.length" class="surface p-4">

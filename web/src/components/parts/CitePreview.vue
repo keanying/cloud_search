@@ -1,15 +1,19 @@
 <script setup lang="ts">
 import { computed, ref, watch, nextTick } from 'vue'
-import { ExternalLink } from 'lucide-vue-next'
+import { ExternalLink, FileText } from 'lucide-vue-next'
 import type { Citation } from '@/api/types'
 import { credibilityTone, hostOf } from '@/lib/format'
+import { fileIdFromUrl } from '@/lib/fileTypes'
 
 /** 引用悬停预览：标题、站点、可信度、发布时间与代表性原文摘录 */
 const props = defineProps<{ cite: Citation | null; anchor: HTMLElement | null }>()
-const emit = defineEmits<{ enter: []; leave: []; open: [n: number] }>()
+const emit = defineEmits<{ enter: []; leave: []; open: [n: number]; openFile: [fileId: string] }>()
 const box = ref<HTMLElement | null>(null)
 const style = ref<Record<string, string>>({ visibility: 'hidden' })
 const tone = computed(() => credibilityTone(props.cite?.credibility))
+const fileId = computed(() =>
+  props.cite?.credibility === 'user_file' ? props.cite.file_id || fileIdFromUrl(props.cite.url) : null,
+)
 
 watch(
   () => [props.cite, props.anchor],
@@ -46,7 +50,7 @@ watch(
     >
       <div class="flex items-center gap-2 text-xs muted">
         <span class="cite-chip !m-0 !align-middle">{{ cite.n }}</span>
-        <span class="truncate">{{ cite.site_name || hostOf(cite.url) }}</span>
+        <span v-if="!fileId" class="truncate">{{ cite.site_name || hostOf(cite.url) }}</span>
         <span
           v-if="cite.credibility_label"
           class="cred"
@@ -58,7 +62,10 @@ watch(
       <blockquote v-if="cite.quote" class="quote">“{{ cite.quote }}”</blockquote>
       <div class="mt-2 flex items-center gap-3 text-xs">
         <button type="button" class="font-semibold accent-ink hover:underline" @click="emit('open', cite.n)">查看来源详情</button>
-        <a :href="cite.url" target="_blank" rel="noopener" class="inline-flex items-center gap-1 muted hover:underline">
+        <button v-if="fileId" type="button" class="inline-flex items-center gap-1 muted hover:underline" @click="emit('openFile', fileId)">
+          查看文件 <FileText class="h-3 w-3" />
+        </button>
+        <a v-else :href="cite.url" target="_blank" rel="noopener" class="inline-flex items-center gap-1 muted hover:underline">
           打开原网页 <ExternalLink class="h-3 w-3" />
         </a>
       </div>

@@ -48,7 +48,7 @@ export interface ConversationList {
   next_cursor: string | null
 }
 
-export type Credibility = 'official' | 'academic' | 'media' | 'reference' | 'community' | 'aggregate' | 'unknown'
+export type Credibility = 'user_file' | 'official' | 'academic' | 'media' | 'reference' | 'community' | 'aggregate' | 'unknown'
 
 export interface Citation {
   n: number
@@ -59,6 +59,7 @@ export interface Citation {
   publish_time_text?: string | null
   credibility?: Credibility
   credibility_label?: string
+  file_id?: string | null
   /** 该来源最有代表性的原文摘录（悬停预览） */
   quote?: string
 }
@@ -127,6 +128,8 @@ export interface SourceBrief {
   publish_time_text?: string | null
   credibility?: Credibility
   credibility_label?: string
+  access_method?: string
+  file_id?: string | null
 }
 
 /** 关键数字：数值已由程序核对出现在对应来源的证据中 */
@@ -220,6 +223,7 @@ export type MessagePart =
   | TakeoverPart
   | HighlightsPart
   | SuggestionsPart
+  | FilePart
 
 export interface MessageOut {
   message_id: string
@@ -243,6 +247,52 @@ export interface MessageIn {
   client_message_id: string
   text: string
   mode_selection: ModeSelection
+  /** 随消息发送的已上传文件 */
+  file_ids?: string[]
+}
+
+// ---------------------------------------------------------------- 上传文件
+export type FileParseStatus = 'queued' | 'parsing' | 'parsed' | 'failed'
+
+export interface FileOut {
+  file_id: string
+  conversation_id: string | null
+  message_id: string | null
+  name: string
+  mime: string
+  ext: string
+  byte_qty: number
+  parse_status: FileParseStatus
+  parse_status_label: string
+  parser: string | null
+  parse_detail: string | null
+  parse_error: string | null
+  page_qty: number | null
+  char_qty: number | null
+  table_qty: number | null
+  image_qty: number | null
+  outline: string[]
+  created_time: string | null
+}
+
+export interface FileContentOut {
+  file: FileOut
+  markdown: string
+  truncated: boolean
+}
+
+/** 用户消息里的附件（随解析状态实时更新） */
+export interface FilePart {
+  type: 'file'
+  part_id: string
+  file_id: string
+  name: string
+  ext: string
+  byte_qty: number
+  parse_status: FileParseStatus
+  parse_detail: string | null
+  parse_error: string | null
+  page_qty: number | null
 }
 
 export interface SendMessageOut {

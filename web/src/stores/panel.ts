@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import type { ArtifactFormat } from '@/api/types'
 
-export type PanelType = 'browser' | 'sources' | 'artifact'
+export type PanelType = 'browser' | 'sources' | 'artifact' | 'file'
 
 /** 右侧面板只改变展示内容；开关/切换不调用任何影响任务执行的接口 */
 export const usePanelStore = defineStore('panel', {
@@ -15,6 +15,8 @@ export const usePanelStore = defineStore('panel', {
     artifactFormats: [] as ArtifactFormat[],
     artifactName: null as string | null,
     browserSessionId: null as string | null,
+    /** 文件预览（上传的文件） */
+    fileId: null as string | null,
     /** 请求以“人工接手”模式查看该会话（实际是否可操作以服务端 interactive 为准） */
     interactiveSessionId: null as string | null,
     widthPct: 40,
@@ -54,6 +56,12 @@ export const usePanelStore = defineStore('panel', {
       if (formats.some((f) => f.format === 'html')) this.widthPct = Math.max(this.widthPct, 50)
       this.open = true
     },
+    openFile(fileId: string) {
+      this.type = 'file'
+      this.fileId = fileId
+      this.widthPct = Math.max(this.widthPct, 45)
+      this.open = true
+    },
     setType(t: PanelType) {
       this.type = t
     },
@@ -70,6 +78,7 @@ export const usePanelStore = defineStore('panel', {
       this.artifactId = null
       this.artifactFormats = []
       this.artifactName = null
+      this.fileId = null
       this.browserSessionId = null
       this.interactiveSessionId = null
       this.dismissedTaskIds = []
