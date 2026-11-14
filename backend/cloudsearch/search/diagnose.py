@@ -17,50 +17,80 @@ from .engines import EngineBlocked, EngineUnavailable, is_network_error, looks_r
 from .service import all_engines, vertical_sources
 
 
-async def _diagnose(query: str) -> int:
-    s = get_settings()
-    await auto_migrate()
-    from ..browser.launch import resolve
+async def diagnose_engines(query: str, names: list[str] | None = None, *, per_engine_timeout: float = 60
+                           ) -> list[dict]:
+    """逐个打开引擎/来源搜索 query，返回每个的状态（命令行与管理后台共用）。
+    status：ok 可用 / empty 无结果 / irrelevant 结果无关 / blocked 需要人机验证 / unreachable 无法访问 / error 出错"""
+    from ..core.runtime import engine_label
 
-    choice = resolve()
-    print(f"浏览器：{choice['detail']}")
-    print(f"代理：{s.browser_proxy or '未设置（直连）'}")
-    print(f"通用引擎顺序：{', '.join(s.search_engines)}")
-    print(f"测试查询：{query}\n")
+    s = get_settings()
+    if names is None:
+        names = list(dict.fromkeys(s.search_engines + list(vertical_sources())))
     pool = get_pool()
     browser = await pool._ensure()
     ctx = await browser.new_context(locale=s.browser_locale, viewport={"width": 1280, "height": 860})
     page = await ctx.new_page()
     sess = CloudBrowserSession("diagnose", ctx, page)
-    names = list(dict.fromkeys(s.search_engines + list(vertical_sources())))
-    ok = 0
+    out: list[dict] = []
     try:
         for name in names:
+            row = {"name": name, "label": engine_label(name), "status": "error", "count": 0, "seconds": 0.0,
+                   "sample": None, "detail": None}
+            out.append(row)
             engine = all_engines().get(name)
             if engine is None:
-                print(f"  {name:14} 未知引擎（检查 config.yaml 的 search.engines 拼写）")
+                row["detail"] = "未知引擎（检查 config.yaml 的 search.engines 拼写）"
                 continue
             t0 = time.monotonic()
             try:
-                hits = await asyncio.wait_for(engine.search(sess, query, 5), 60)
-                dt = time.monotonic() - t0
+                hits = await asyncio.wait_for(engine.search(sess, query, 5), per_engine_timeout)
+                row["count"] = len(hits)
                 if not hits:
-                    print(f"  {name:14} 无结果（{dt:.1f}s）  当前页面：{page.url[:70]}")
+                    row["status"], row["detail"] = "empty", f"当前页面：{page.url[:80]}"
                 elif not looks_relevant(query, hits) and name in s.search_engines:
-                    print(f"  {name:14} 结果与查询无关（可能被风控返回了无关内容，{dt:.1f}s）")
+                    row["status"], row["detail"] = "irrelevant", "可能被风控返回了无关内容"
                 else:
-                    ok += 1
-                    print(f"  {name:14} 可用：{len(hits)} 条（{dt:.1f}s）  例：{(hits[0].title or '')[:30]}")
+                    row["status"], row["sample"] = "ok", (hits[0].title or "")[:60]
             except EngineBlocked:
-                print(f"  {name:14} 需要人机验证（任务中会弹出“需要你协助”，由你在实时画面中完成）")
+                row["status"], row["detail"] = "blocked", "任务中会弹出“需要你协助”，由你在实时画面中完成验证"
             except Exception as e:  # noqa: BLE001
-                kind = ("无法访问（网络不通或被拒绝，可能需要在 config.yaml 设置 browser.proxy）"
-                        if isinstance(e, EngineUnavailable) or is_network_error(e) else "出错")
-                print(f"  {name:14} {kind}：{str(e).splitlines()[0][:90]}")
+                unreachable = isinstance(e, EngineUnavailable) or is_network_error(e)
+                row["status"] = "unreachable" if unreachable else "error"
+                msg = (str(e).splitlines() or [type(e).__name__])[0][:120]
+                row["detail"] = (msg + "（网络不通或被拒绝，可能需要在 config.yaml 设置 browser.proxy）"
+                                 if unreachable else msg)
+            row["seconds"] = round(time.monotonic() - t0, 1)
     finally:
         await ctx.close()
-        await pool.close()
-    print(f"\n可用 {ok}/{len(names)}。任务中会按顺序使用可用的引擎，不可用的会自动跳过。")
+    return out
+
+
+_TEXT = {"ok": "可用", "empty": "无结果", "irrelevant": "结果与查询无关", "blocked": "需要人机验证",
+         "unreachable": "无法访问", "error": "出错"}
+
+
+async def _diagnose(query: str) -> int:
+    s = get_settings()
+    await auto_migrate()
+    from ..browser.launch import resolve
+    from ..core import runtime
+
+    await runtime.refresh(force=True)
+    choice = resolve()
+    print(f"浏览器：{choice['detail']}")
+    print(f"代理：{s.browser_proxy or '未设置（直连）'}")
+    print(f"通用引擎顺序：{', '.join(s.search_engines)}")
+    print(f"测试查询：{query}\n")
+    try:
+        rows = await diagnose_engines(query)
+    finally:
+        await get_pool().close()
+    for r in rows:
+        extra = f"：{r['count']} 条  例：{r['sample']}" if r["status"] == "ok" else (
+            f"：{r['detail']}" if r["detail"] else "")
+        print(f"  {r['name']:14} {_TEXT[r['status']]}（{r['seconds']}s）{extra}")
+    ok = sum(1 for r in rows if r["status"] == "ok")
+    print(f"\n可用 {ok}/{len(rows)}。任务中会按顺序使用可用的引擎，不可用的会自动跳过。")
     return 0 if ok else 1
 
 

@@ -29,6 +29,9 @@ class Worker:
 
     async def tick(self) -> bool:
         """领取一轮工作；返回是否领取到任何东西。"""
+        from ..core import runtime
+
+        await runtime.refresh()  # 管理后台修改的运行参数（TTL 缓存）
         s = get_settings()
         got = False
         while len(self.turns) < MAX_CONCURRENT_TURNS:

@@ -385,3 +385,12 @@ class Artifact(Base):
     artifact_status: Mapped[str] = mapped_column(ENUM, default="available")
     created_time: Mapped[datetime] = mapped_column(DT, default=_now)
 
+
+
+# ---------------------------------------------------------------- 后台运行参数
+class SystemSetting(Base, TimestampMixin):
+    __tablename__ = "src_opr_system_setting_f"
+    __table_args__ = {"comment": "管理后台修改的运行参数（覆盖 config.yaml 中的同名项，无需重启）"}
+    setting_key: Mapped[str] = mapped_column(String(64), primary_key=True, comment="参数键，如 search_engines")
+    setting_value: Mapped[Any] = mapped_column(JSON, comment="参数值（JSON）")
+    updated_by_id: Mapped[str | None] = mapped_column(ID, comment="最后修改人")

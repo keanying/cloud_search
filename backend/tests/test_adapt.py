@@ -195,12 +195,13 @@ async def test_auto_migrate_legacy_database(tmp_path, monkeypatch):
         await conn.execute(sa.text("ALTER TABLE src_opr_llm_model_f DROP COLUMN supports_forced_tool_choice"))
         for col in ("handoff_state", "handoff_reason", "handoff_deadline", "handoff_user_id", "live_endpoint"):
             await conn.execute(sa.text(f"ALTER TABLE src_opr_browser_session_f DROP COLUMN {col}"))
+        await conn.execute(sa.text("DROP TABLE src_opr_system_setting_f"))
     await auto_migrate()
     await auto_migrate()  # 幂等
     async with base.get_engine().connect() as conn:
         cols = await conn.run_sync(lambda c: {x["name"] for x in sa.inspect(c).get_columns("src_opr_llm_model_f")})
         ver = (await conn.execute(sa.text("SELECT version_num FROM alembic_version"))).scalar()
-    assert "supports_forced_tool_choice" in cols and ver == "57f4cb6bf707"
+    assert "supports_forced_tool_choice" in cols and ver == "b3c1d9a7e2f4"
     await base.dispose_engine()
     # 全新空库：从头迁移
     monkeypatch.setenv("CS_DATABASE_URL", f"sqlite+aiosqlite:///{(tmp_path / 'new.db').as_posix()}")
