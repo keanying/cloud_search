@@ -118,6 +118,51 @@ async def test_mineru_api_v4_zip_and_polling(env, monkeypatch):
     assert res.image_qty == 1 and calls[0] == ("POST", "/v1/file_parse")
 
 
+async def test_mineru_api_server_tasks_api(env, monkeypatch):
+    """只启动 mineru-kit api-server（没有 file-parse-server）时走 Tasks API。"""
+    import httpx
+
+    from cloudsearch.core.config import get_settings
+    from cloudsearch.files import parsers
+
+    monkeypatch.setattr(get_settings(), "mineru_api_url", "http://127.0.0.1:8002")
+    monkeypatch.setattr(parsers.asyncio, "sleep", lambda *_: _noop())
+    seen = {"polls": 0}
+
+    def handler(req):
+        import json as _j
+
+        p = req.url.path
+        if p == "/v1/file_parse":
+            return httpx.Response(404)
+        if p == "/v1/tasks" and req.method == "POST":
+            body = _j.loads(req.content)
+            assert body["files"][0] == {"file_name": "合同.pdf", "bytes": 4} and body["page_range"] == "all"
+            return httpx.Response(202, json={"task_id": "t1", "status": "waiting-file", "files": [
+                {"file_id": "f1", "file_name": "合同.pdf", "status": "waiting-file",
+                 "upload": {"url": "/v1/tasks/t1/uploads/f1", "headers": {"X-Upload": "1"}}}]})
+        if p == "/v1/tasks/t1/uploads/f1":
+            assert req.method == "PUT" and req.content == b"%PDF" and req.headers["x-upload"] == "1"
+            seen["uploaded"] = True
+            return httpx.Response(204)
+        if p == "/v1/tasks/t1":
+            seen["polls"] += 1
+            st = "running" if seen["polls"] < 2 else "completed"
+            return httpx.Response(200, json={"task_id": "t1", "status": st, "files": [
+                {"file_id": "f1", "status": st, "result_url": "/v1/files/f1/content" if st == "completed" else None}]})
+        if p == "/v1/files/f1/content":
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w") as z:
+                z.writestr("markdown.md", "# 合同\n甲方：某公司")
+                z.writestr("structured_content.json", "{}")
+            return httpx.Response(200, content=buf.getvalue())
+        return httpx.Response(500)
+
+    _mock_client(monkeypatch, handler)
+    res = await parsers.parse_bytes(b"%PDF", "合同.pdf", "pdf")
+    assert res.parser == "mineru_api" and "甲方：某公司" in res.markdown and seen["uploaded"]
+
+
 async def _noop():
     return None
 

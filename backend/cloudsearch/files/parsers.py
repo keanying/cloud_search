@@ -217,7 +217,7 @@ def _md_from_zip(data: bytes) -> tuple[str, int]:
         names = [n for n in z.namelist() if n.lower().endswith(".md")]
         if not names:
             raise ParseError("MinerU 返回的结果里没有 Markdown 文件。")
-        pick = next((n for n in names if n.rsplit("/", 1)[-1] == "full.md"), None) or \
+        pick = next((n for n in names if n.rsplit("/", 1)[-1] in ("full.md", "markdown.md")), None) or \
             max(names, key=lambda n: z.getinfo(n).file_size)
         md = _decode(z.read(pick))
         images = sum(1 for n in z.namelist() if re.search(r"(^|/)images/.+\.(png|jpe?g|webp|gif|bmp)$", n, re.I))
@@ -241,18 +241,82 @@ def _err(resp) -> str:
 
 
 # ---------------------------------------------------------------- MinerU：自部署 HTTP
-async def mineru_api_parse(data: bytes, name: str, *, deadline: float) -> ParseResult:
+def _abs(base: str, url: str) -> str:
+    return base + url if url.startswith("/") else url
+
+
+async def _tasks_api(c, base: str, data: bytes, name: str, ext: str, deadline: float) -> bytes | None:
+    """MinerU 4.x 主服务（mineru-kit api-server）的 Tasks API：建任务 → PUT 上传 → 轮询 → 下载结果 zip。
+    服务不支持该接口时返回 None。"""
+    s = get_settings()
+    body: dict = {"files": [{"file_name": name, "bytes": len(data)}], "tier": s.mineru_tier,
+                  "output_formats": ["default"]}
+    if ext in PDF_EXT:
+        body["page_range"] = "all"  # 默认只解析前 10 页
+    r = await c.post(f"{base}/v1/tasks", json=body)
+    if r.status_code in (404, 405):
+        return None
+    if r.status_code not in (200, 201, 202):
+        raise ParseError(f"MinerU 服务返回 {r.status_code}：{_err(r)}")
+    try:
+        task = r.json()
+    except ValueError:
+        return None
+    task_id = task.get("task_id") if isinstance(task, dict) else None
+    if not task_id:
+        return None  # 不是 Tasks API（例如旧版服务对未知路径的响应）
+    for f in task.get("files") or []:
+        up = f.get("upload")
+        if up and up.get("url"):
+            u = await c.put(_abs(base, up["url"]), content=data, headers=up.get("headers") or {})
+            if u.status_code >= 300:
+                raise ParseError(f"上传到 MinerU 失败（HTTP {u.status_code}）：{_err(u)}")
+    while True:
+        if time.monotonic() > deadline:
+            raise ParseError("MinerU 解析超时。")
+        await asyncio.sleep(3)
+        r = await c.get(f"{base}/v1/tasks/{task_id}")
+        if r.status_code != 200:
+            continue
+        t = r.json()
+        if not isinstance(t, dict) or not (t.get("status") or t.get("files")):
+            raise ParseError(f"MinerU 任务状态返回异常：{str(t)[:160]}")
+        files = t.get("files") or []
+        f = files[0] if files else {}
+        status = f.get("status") or t.get("status")
+        if status in ("failed", "canceled"):
+            e = f.get("error") or t.get("error") or {}
+            raise ParseError(f"MinerU 解析失败：{e.get('message') if isinstance(e, dict) else e or status}")
+        if status == "completed" and f.get("result_url"):
+            res = await c.get(_abs(base, f["result_url"]))
+            if res.status_code != 200:
+                raise ParseError(f"下载 MinerU 结果失败（HTTP {res.status_code}）")
+            return res.content
+
+
+async def mineru_api_parse(data: bytes, name: str, *, deadline: float, ext: str = "") -> ParseResult:
+    """自部署 MinerU。按顺序兼容三种服务：
+    1) mineru-kit file-parse-server（POST /v1/file_parse，同步返回 zip）；
+    2) mineru-kit api-server 主服务（Tasks API：/v1/tasks）——只启动这一个进程即可；
+    3) 旧版 mineru-api（POST /file_parse，返回 JSON）。"""
     s = get_settings()
     base = (s.mineru_api_url or "").rstrip("/")
     if not base:
         raise ParseError("未配置 mineru.api_url")
+    ext = ext or Path(name).suffix.lower().lstrip(".")
     headers = {"Authorization": f"Bearer {s.mineru_api_key}"} if s.mineru_api_key else {}
     remaining = max(30.0, deadline - time.monotonic())
+    label = f"{PARSER_LABELS['mineru_api']} · {s.mineru_tier}"
     async with _client(remaining, headers=headers) as c:
-        form = {"tier": s.mineru_tier, "page_range": "all", "output_formats": "default",
-                "wait_timeout": str(int(min(3600, remaining)))}
+        form = {"tier": s.mineru_tier, "output_formats": "default", "wait_timeout": str(int(min(3600, remaining)))}
+        if ext in PDF_EXT:
+            form["page_range"] = "all"
         r = await c.post(f"{base}/v1/file_parse", data=form, files={"file": (name, data)})
-        if r.status_code == 404:  # 旧版 mineru-api：POST /file_parse 返回 JSON
+        if r.status_code in (404, 405):
+            z = await _tasks_api(c, base, data, name, ext, deadline)
+            if z is not None:
+                md, imgs = _md_from_zip(z)
+                return ParseResult(md, "mineru_api", label, image_qty=imgs)
             r = await c.post(f"{base}/file_parse", data={"return_md": "true", "lang_list": s.mineru_language},
                              files={"files": (name, data)})
             if r.status_code != 200:
@@ -265,9 +329,7 @@ async def mineru_api_parse(data: bytes, name: str, *, deadline: float) -> ParseR
             return ParseResult(clean, "mineru_api", f"{PARSER_LABELS['mineru_api']} · 旧版接口", image_qty=imgs)
         if r.status_code == 202:  # 超过等待时间：轮询结果地址
             info = r.json()
-            result_url = info.get("result_url") or f"/v1/file_parse/{info.get('request_id')}/result"
-            if result_url.startswith("/"):
-                result_url = base + result_url
+            result_url = _abs(base, info.get("result_url") or f"/v1/file_parse/{info.get('request_id')}/result")
             while True:
                 if time.monotonic() > deadline:
                     raise ParseError("MinerU 解析超时。")
@@ -280,7 +342,7 @@ async def mineru_api_parse(data: bytes, name: str, *, deadline: float) -> ParseR
         if r.status_code != 200:
             raise ParseError(f"MinerU 服务返回 {r.status_code}：{_err(r)}")
         md, imgs = _md_from_zip(r.content)
-    return ParseResult(md, "mineru_api", f"{PARSER_LABELS['mineru_api']} · {s.mineru_tier}", image_qty=imgs)
+    return ParseResult(md, "mineru_api", label, image_qty=imgs)
 
 
 # ---------------------------------------------------------------- MinerU：mineru.net 精准解析
@@ -419,7 +481,7 @@ async def parse_bytes(data: bytes, name: str, ext: str, *, data_id: str = "") ->
             if p == "builtin":
                 res = await asyncio.to_thread(builtin_parse, data, ext)
             elif p == "mineru_api":
-                res = await mineru_api_parse(data, name, deadline=deadline)
+                res = await mineru_api_parse(data, name, deadline=deadline, ext=ext)
             elif p == "mineru_cloud":
                 res = await mineru_cloud_parse(data, name, deadline=deadline, data_id=data_id)
             elif p == "mineru_agent":
