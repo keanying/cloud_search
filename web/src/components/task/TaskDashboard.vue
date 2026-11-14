@@ -22,6 +22,7 @@ import TakeoverPart from '@/components/parts/TakeoverPart.vue'
 import StageTimeline from './StageTimeline.vue'
 import StatTiles from './StatTiles.vue'
 import FileCard from '@/components/files/FileCard.vue'
+import MiniBrowser from './MiniBrowser.vue'
 import { fileIdFromUrl } from '@/lib/fileTypes'
 
 /** 右侧“本次任务”看板：统计、阶段时间线、人工协助、最新来源、成果 */
@@ -69,6 +70,12 @@ function lastPart<T>(type: string, id: string | null): T | undefined {
   return undefined
 }
 const progress = computed(() => lastPart<ProgressPart>('progress', taskId.value))
+/** 文件：有选中任务时只显示该任务用到的文件；还没有任务时显示对话里的文件 */
+const taskFiles = computed(() => {
+  if (!taskId.value) return chat.sentFiles
+  const ids = ((task.value?.task_spec as { scope?: { file_ids?: string[] } } | undefined)?.scope?.file_ids) ?? []
+  return chat.sentFiles.filter((f) => ids.includes(f.file_id))
+})
 const status = computed(() => task.value?.task_status ?? progress.value?.task_status ?? null)
 const active = computed(() => ACTIVE_STATUSES.has(status.value ?? ''))
 const takeover = computed(() => {
@@ -93,6 +100,7 @@ const outputs = computed(() => {
     const p = allParts.value[i]
     if (p.type !== 'artifact') continue
     const a = p as ArtifactPart
+    if (a.task_id !== taskId.value) continue // 只显示当前任务的成果
     if (seen.has(a.artifact_id)) continue
     seen.add(a.artifact_id)
     out.push(a)
@@ -108,7 +116,7 @@ async function loadSources(id: string) {
     const res = await api.taskSources(id)
     if (taskId.value !== id) return
     sources.value = [...res.sources]
-      .filter((s) => s.revision_status !== 'failed')
+      .filter((s) => s.revision_status === 'captured') // 只显示本任务实际读到的来源
       .sort((a, b) => (a.retrieved_time < b.retrieved_time ? 1 : -1))
       .slice(0, 5)
   } catch {
@@ -283,14 +291,14 @@ function siteName(s: SourceOut) {
       </template>
 
       <!-- 对话中的文件 -->
-      <section v-if="chat.sentFiles.length" class="surface p-4">
+      <section v-if="taskFiles.length" class="surface p-4">
         <h3 class="mb-2 flex items-center gap-1.5 text-sm font-bold text-white">
-          <Paperclip class="h-4 w-4" /> 对话中的文件
-          <span class="text-xs font-semibold text-slate-400">{{ chat.sentFiles.length }}</span>
+          <Paperclip class="h-4 w-4" /> {{ taskId ? '本次使用的文件' : '对话中的文件' }}
+          <span class="text-xs font-semibold text-slate-400">{{ taskFiles.length }}</span>
         </h3>
         <div class="space-y-1.5">
           <FileCard
-            v-for="f in chat.sentFiles"
+            v-for="f in taskFiles"
             :key="f.file_id"
             compact
             :name="f.name"
@@ -337,6 +345,9 @@ function siteName(s: SourceOut) {
           </li>
         </ul>
       </section>
+
+      <!-- 搜索/读取网页时的浏览器小窗（点击放大） -->
+      <MiniBrowser v-if="taskId" :task-id="taskId" :active="active" />
     </div>
   </aside>
 </template>

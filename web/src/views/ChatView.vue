@@ -180,6 +180,7 @@ watch(
       const pr = p as ProgressPart
       const status = chat.tasks[pr.task_id]?.task_status ?? pr.task_status
       if (!prefs.autoOpenBrowser || !pr.browser_available || !ACTIVE_STATUSES.has(status)) continue
+      if (wide.value) continue // 宽屏：右侧“本次任务”底部有浏览器小窗，点击再放大，不自动占满右栏
       if (panel.autoOpenedTaskIds.includes(pr.task_id)) continue
       panel.autoOpenBrowser(pr.task_id)
     }
