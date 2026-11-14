@@ -403,17 +403,30 @@ def port_free(host: str, port: int) -> bool:
             return False
 
 
-def wait_health(url: str, timeout: float = 60) -> bool:
+# 访问本机服务时不走代理：Windows 上 urllib 会读取系统代理（如 Clash 127.0.0.1:7890），
+# 请求 127.0.0.1 也可能被转给代理而失败
+_LOCAL_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def wait_health(url: str, timeout: float = 60, procs: list | None = None) -> tuple[bool, str]:
+    """轮询健康检查；返回 (是否就绪, 最后一次失败原因)。服务进程退出时立即返回。"""
     deadline = time.time() + timeout
+    last = "尚未响应"
     while time.time() < deadline:
+        if procs and procs[0].poll() is not None:
+            return False, f"服务进程已退出（退出码 {procs[0].returncode}）"
         try:
-            with urllib.request.urlopen(url, timeout=3) as r:
+            with _LOCAL_OPENER.open(url, timeout=10) as r:
                 if r.status == 200:
-                    return True
-        except Exception:  # noqa: BLE001
-            pass
+                    return True, ""
+                last = f"HTTP {r.status}"
+        except urllib.error.HTTPError as e:
+            body = e.read()[:200].decode("utf-8", "replace")
+            last = f"HTTP {e.code} {body}"
+        except Exception as e:  # noqa: BLE001
+            last = f"{type(e).__name__}: {e}"[:200]
         time.sleep(1)
-    return False
+    return False, last
 
 
 def serve(cfg: dict, args: argparse.Namespace, pm: list[str] | None) -> None:
@@ -439,12 +452,19 @@ def serve(cfg: dict, args: argparse.Namespace, pm: list[str] | None) -> None:
                                       env={**env, "CS_API_PORT": str(port)}))
     local = f"http://127.0.0.1:{port}"
     step("启动服务")
-    if "pydevd" in sys.modules:
+    debugging = "pydevd" in sys.modules
+    if debugging:
         info("检测到 PyCharm 调试模式：子进程也会被调试器接管，启动和运行较慢；日常使用建议用 Run 或 start.bat")
-    if not wait_health(f"{local}/api/health"):
-        for p in procs:
-            p.terminate()
-        fail("服务未能在 60 秒内就绪，请查看上方日志")
+    wait_s = 180 if debugging else 90
+    ok, why = wait_health(f"{local}/api/health", wait_s, procs)
+    if not ok:
+        if procs[0].poll() is not None:  # 服务确实没起来
+            for p in procs:
+                p.terminate()
+            fail(f"服务启动失败：{why}", "请查看上方日志")
+        # 进程还在运行，只是健康检查没通过（常见于代理、杀毒软件拦截本机访问或调试器过慢）：不终止服务
+        info(f"健康检查 {wait_s} 秒内未通过（最后一次：{why}），服务进程仍在运行，继续。"
+             f"如果浏览器打不开 {local}，请检查系统代理是否对 127.0.0.1 生效，或查看上方日志")
     url = "http://127.0.0.1:5173" if args.dev else local
     print(f"\n  云搜浏览器已启动：{url}\n  第一个注册的账号为管理员；按 Ctrl+C 停止。\n", flush=True)
     if not args.no_browser:

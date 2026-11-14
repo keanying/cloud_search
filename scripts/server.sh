@@ -75,8 +75,9 @@ health_url() {
 }
 
 http_get() {
-  if command -v curl >/dev/null 2>&1; then curl -fsS --max-time 5 "$1"
-  else "$VENV_PY" -c "import sys,urllib.request;print(urllib.request.urlopen(sys.argv[1],timeout=5).read().decode())" "$1"
+  # 访问本机服务不走代理（HTTP_PROXY/HTTPS_PROXY 环境变量会让 curl/urllib 把 127.0.0.1 也转给代理）
+  if command -v curl >/dev/null 2>&1; then curl -fsS --noproxy '*' --max-time 10 "$1"
+  else "$VENV_PY" -c "import sys,urllib.request as u;print(u.build_opener(u.ProxyHandler({})).open(sys.argv[1],timeout=10).read().decode())" "$1"
   fi
 }
 

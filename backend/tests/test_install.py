@@ -42,3 +42,36 @@ def test_browser_choice(env, monkeypatch, tmp_path):
     (tmp_path / "chromium-1243").rmdir()
     monkeypatch.setattr(launch, "system_browser", lambda ch: None)
     assert launch.resolve()["mode"] == "missing"
+
+
+def test_wait_health_ignores_proxy(monkeypatch):
+    """系统/环境代理不应影响对本机服务的健康检查（Windows 上 Clash 等代理会接管 127.0.0.1）。"""
+    import http.server
+    import threading
+
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("cs_run", ROOT / "run.py")
+    run = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(run)
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:9")  # 不可用的代理
+    monkeypatch.setenv("http_proxy", "http://127.0.0.1:9")
+    monkeypatch.delenv("NO_PROXY", raising=False)
+    monkeypatch.delenv("no_proxy", raising=False)
+    try:
+        ok, why = run.wait_health(f"http://127.0.0.1:{srv.server_port}/api/health", timeout=5)
+        assert ok, why
+    finally:
+        srv.shutdown()
