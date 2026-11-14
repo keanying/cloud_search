@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -107,11 +108,20 @@ class TaskExecContext:
     async def step(self, node_id: str, fn: Callable[[TaskExecContext], Awaitable[StepResult]], *,
                    node_kind: str = "agent", agent_role: str | None = None,
                    input_json: dict | None = None) -> dict[str, Any]:
+        from ..core.tracelog import trace
+
         reused = await self.reusable_output(node_id)
         if reused is not None:
+            trace("step", f"{node_id} 复用上次已完成的结果")
             return reused
         await self.check()
         step_id = new_id("step")
+        t0 = time.monotonic()
+        trace("step", f"{node_id} 开始", role=agent_role, kind=node_kind)
+
+        def done(status: str, err: str | None = None) -> None:
+            trace("step", f"{node_id} {status}（{time.monotonic() - t0:.1f}s）", error=err)
+
         try:
             async with session_scope() as s:
                 attempt = (await s.execute(select(func.count()).select_from(TaskStep).where(
@@ -123,18 +133,22 @@ class TaskExecContext:
                                lease_epoch=self.lease_epoch, input_json=input_json, started_time=utcnow()))
             result = await fn(self.for_step(step_id))
         except TaskInterrupted:
+            done("被中断")
             await self._finish_step(step_id, "cancelled", error_code="interrupted")
             raise
         except asyncio.CancelledError:
             # 并发兄弟节点因停止被取消：收尾记录后继续传播取消
+            done("已取消")
             await self._finish_step(step_id, "cancelled", error_code="cancelled")
             raise
         except LeaseLost:
             raise
         except BudgetExhausted as e:
+            done("额度用尽", str(e))
             await self._finish_step(step_id, "failed", error_code="budget_exhausted", error_desc=str(e))
             raise
         except Exception as e:
+            done("失败", f"{type(e).__name__}: {str(e)[:800]}")
             await self._finish_step(step_id, "failed", error_code=type(e).__name__, error_desc=str(e)[:2000])
             raise
         # 带栅栏提交：结果与持久化写入同事务
@@ -149,11 +163,13 @@ class TaskExecContext:
                 row.output_hash = sha256_json(result.output)
                 row.finished_time = utcnow()
         except (TaskInterrupted, LeaseLost):
+            done("结果作废（已停止/租约丢失）")
             await self._finish_step(step_id, "cancelled", error_code="late_result_quarantined")
             raise
         except asyncio.CancelledError:
             await self._finish_step(step_id, "cancelled", error_code="cancelled")
             raise
+        done("完成")
         return result.output
 
     async def _finish_step(self, step_id: str, status: str, *, error_code: str | None = None,

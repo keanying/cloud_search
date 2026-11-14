@@ -244,6 +244,13 @@ export const api = {
   listArtifacts: () => get<ArtifactOut[]>('/artifacts'),
   getArtifact: (id: string) => get<ArtifactOut>(`/artifacts/${enc(id)}`),
   artifactPreview: (id: string) => get<ArtifactPreviewOut>(`/artifacts/${enc(id)}/preview`),
+  /** 下载任务执行日志（排查问题时发给开发者） */
+  downloadTaskTrace: async (taskId: string) => {
+    const res = await rawFetch(`/tasks/${enc(taskId)}/trace`)
+    const cd = res.headers.get('content-disposition') || ''
+    const m = /filename\*=UTF-8''([^;]+)/i.exec(cd)
+    saveBlob(await res.blob(), m ? decodeURIComponent(m[1]) : `执行日志_${taskId}.log`)
+  },
   downloadArtifact: async (id: string, filename: string) => {
     const res = await rawFetch(`/artifacts/${enc(id)}/download`)
     saveBlob(await res.blob(), filename)

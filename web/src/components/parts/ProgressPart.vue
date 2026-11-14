@@ -40,6 +40,15 @@ const canPause = computed(() => status.value === 'queued' || status.value === 'r
 const canResume = computed(() => status.value === 'paused')
 const canContinue = computed(() => TERMINAL_STATUSES.has(status.value))
 
+async function downloadTrace() {
+  menuOpen.value = false
+  try {
+    await api.downloadTaskTrace(props.part.task_id)
+  } catch (e) {
+    toast.error(e, '下载执行日志失败')
+  }
+}
+
 async function run(fn: () => Promise<TaskOut>, okText: string) {
   menuOpen.value = false
   busy.value = true
@@ -122,6 +131,14 @@ async function run(fn: () => Promise<TaskOut>, okText: string) {
             @click="run(() => api.continueTask(part.task_id), '已创建续做任务，旧成果不会被修改')"
           >
             继续补查（新任务）
+          </button>
+          <button
+            role="menuitem"
+            class="block w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-white/10"
+            title="包含每一步的耗时、搜索与读取结果、验证判定原因和模型调用，出现问题时可以发给开发者排查"
+            @click="downloadTrace"
+          >
+            下载执行日志
           </button>
         </div>
         </Teleport>

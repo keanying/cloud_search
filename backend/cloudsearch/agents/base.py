@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import time
+
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Generic, Protocol, TypeVar
@@ -117,9 +119,17 @@ async def _run_once(spec: AgentSpec[O], prompt: str, resolved, *, deps: Any, ctx
     run = AgentRun(agent_run_id=new_id("arun"), task_id=ctx.task_id if ctx else None,
                    step_id=ctx.step_id if ctx else None, conversation_id=conversation_id,
                    agent_role=spec.role.value, model_profile_id=resolved.primary_profile_id, started_time=started)
+    from ..core.config import get_settings
+    from ..core.tracelog import trace
+
+    t0 = time.monotonic()
+    want_prompt = get_settings().logs_include_prompts
     try:
         result = await agent.run(prompt, deps=deps, usage_limits=UsageLimits(request_limit=spec.request_limit))
     except Exception as e:
+        trace("llm", f"{spec.role.value} 调用失败（{time.monotonic() - t0:.1f}s）：{type(e).__name__}: {str(e)[:500]}",
+              prompt_chars=len(prompt), status_code=getattr(e, "status_code", None),
+              prompt=prompt if want_prompt else None)
         rejected = getattr(e, "status_code", None) in (400, 422)
         run.run_status = "failed"
         run.error_desc = f"{type(e).__name__}: {e}"[:2000]
@@ -157,6 +167,11 @@ async def _run_once(spec: AgentSpec[O], prompt: str, resolved, *, deps: Any, ctx
     run.cost_minor_amt = total_cost
     run.cost_status = "confirmed" if total_cost is not None else "unknown"
     run.finished_time = utcnow()
+    trace("llm", f"{spec.role.value} · {provider_name or ''} {model_name or ''}（{time.monotonic() - t0:.1f}s）",
+          requests=reqs, input_tokens=in_tok, output_tokens=out_tok, prompt_chars=len(prompt),
+          prompt=prompt if want_prompt else None,
+          output=(result.output.model_dump_json()[:4000] if hasattr(result.output, "model_dump_json")
+                  else str(result.output)[:4000]) if want_prompt else None)
     async with session_scope() as s:
         s.add(run)
     if ctx is not None:

@@ -167,7 +167,9 @@ class Settings(BaseSettings):
     storage_dir: Path = BACKEND_ROOT / "data" / "storage"
 
     # 云端浏览器
-    browser_headless: bool = True
+    browser_headless: bool = True  # 本地调试设为 false：会打开可见的浏览器窗口
+    browser_slow_mo_ms: int = 0  # 调试用：每个浏览器动作之间放慢的毫秒数（配合有头模式观察）
+    browser_save_challenge_pages: bool = True  # 判定为人机验证/拦截时保存截图与 HTML 到 logs/challenges/
     # 浏览器内核：auto（已装自带 Chromium 则用，否则用系统 Edge/Chrome）/ bundled / msedge / chrome
     browser_channel: str = "auto"
     browser_executable_path: str | None = None
@@ -200,6 +202,10 @@ class Settings(BaseSettings):
     task_max_llm_requests: int = 60
     # 研究类任务“反思→补查”的最多轮数（数据任务最多 1 轮；简答不补查）
     task_max_extra_waves: int = 2
+
+    # 日志：logs/app.log（全局）、logs/tasks/<task_id>.log（每个任务的执行日志，可在页面下载）
+    logs_dir: Path = Path("logs")
+    logs_include_prompts: bool = False  # 执行日志里是否记录发给模型的提示词全文（可能含文件内容，默认关闭）
 
     # 上传文件（对话中的附件）：解析为 Markdown 后作为可引用的来源参与问答与分析
     files_max_mb: int = 100

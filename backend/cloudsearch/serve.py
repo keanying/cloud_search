@@ -41,7 +41,10 @@ def main() -> None:
 
     from .core.config import get_settings
 
+    from .core.tracelog import setup_app_logging
+
     s = get_settings()
+    setup_app_logging()
     ap = argparse.ArgumentParser(description="云搜浏览器 API 服务")
     ap.add_argument("--host", default=s.server_host)
     ap.add_argument("--port", type=int, default=s.server_port)

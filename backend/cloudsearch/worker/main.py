@@ -90,6 +90,9 @@ class Worker:
 
 async def _main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    from ..core.tracelog import setup_app_logging
+
+    setup_app_logging()
     # 数据库迁移由启动脚本 / API 负责，worker 不做迁移，避免多进程同时迁移
     from ..app import sync_config_to_db
 

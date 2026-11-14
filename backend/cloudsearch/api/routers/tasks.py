@@ -131,3 +131,63 @@ async def browser_sessions(task_id: str, u: CurrentUser = Depends(current_user),
                               frame_time=r.frame_time, live_available=live_available(r),
                               handoff_state=r.handoff_state, handoff_reason=r.handoff_reason,
                               handoff_deadline=r.handoff_deadline) for r in rows]
+
+
+@router.get("/{task_id}/trace")
+async def task_trace(task_id: str, u: CurrentUser = Depends(current_user), s: AsyncSession = Depends(get_session)):
+    """下载任务执行日志（排查用）：任务与环境信息 + 逐行执行记录；旧任务没有日志文件时由数据库记录生成摘要。"""
+    import platform
+    from datetime import datetime
+    from urllib.parse import quote
+
+    from fastapi import Response
+
+    from ...core.tracelog import config_summary, trace_path
+    from ...db.models import AgentRun, TaskStep
+
+    t = await get_task(s, u, task_id)
+    head = [
+        "云搜浏览器 · 任务执行日志",
+        f"任务：{t.title}（{t.task_id}）",
+        f"模式：{t.mode}　状态：{t.task_status}　当前阶段：{t.current_stage or '-'}",
+        f"创建：{t.created_time}　更新：{t.updated_time}　模型调用：{t.llm_request_qty} 次",
+        f"导出时间：{datetime.now():%Y-%m-%d %H:%M:%S}　Python {platform.python_version()}　{platform.platform()}",
+        f"版本：{_git_version()}",
+        "配置摘要：" + __import__("json").dumps(config_summary(), ensure_ascii=False),
+        "=" * 100,
+    ]
+    p = trace_path(task_id)
+    if p.exists():
+        body = p.read_text(encoding="utf-8", errors="replace")
+    else:
+        lines = ["（这个任务没有逐行执行日志——可能是在升级前运行的。以下根据数据库记录生成。）"]
+        for st in (await s.execute(select(TaskStep).where(TaskStep.task_id == task_id)
+                                   .order_by(TaskStep.created_time))).scalars():
+            dur = (st.finished_time - st.started_time).total_seconds() if st.finished_time and st.started_time else None
+            lines.append(f"{st.started_time}  [step]  {st.node_id} {st.step_status}"
+                         f"{f'（{dur:.1f}s）' if dur is not None else ''}"
+                         f"{'  错误：' + (st.error_desc or st.error_code or '')[:500] if st.step_status == 'failed' else ''}")
+        for r in (await s.execute(select(AgentRun).where(AgentRun.task_id == task_id)
+                                  .order_by(AgentRun.started_time))).scalars():
+            lines.append(f"{r.started_time}  [llm]  {r.agent_role} · {r.model_name or ''} {r.run_status} "
+                         f"tokens {r.input_token_qty}/{r.output_token_qty}"
+                         f"{'  错误：' + (r.error_desc or '')[:500] if r.run_status != 'succeeded' else ''}")
+        body = "\n".join(lines) + "\n"
+    data = ("\n".join(head) + "\n" + body).encode("utf-8")
+    name = f"执行日志_{t.title[:30]}_{task_id[-8:]}.log"
+    return Response(data, media_type="text/plain; charset=utf-8",
+                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}"})
+
+
+def _git_version() -> str:
+    from ...core.config import PROJECT_ROOT
+
+    try:
+        head = (PROJECT_ROOT / ".git" / "HEAD").read_text().strip()
+        if head.startswith("ref:"):
+            ref = head.split(" ", 1)[1]
+            sha = (PROJECT_ROOT / ".git" / ref).read_text().strip() if (PROJECT_ROOT / ".git" / ref).exists() else "?"
+            return f"{ref.rsplit('/', 1)[-1]}@{sha[:8]}"
+        return head[:8]
+    except OSError:
+        return "未知"

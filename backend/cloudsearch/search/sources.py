@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from ..browser.pool import CloudBrowserSession
 from ..contracts import SearchHit
-from .engines import GENERIC_JS, EngineBlocked, SearchEngine, page_is_challenge, query_language
+from .engines import GENERIC_JS, EngineBlocked, SearchEngine, page_is_challenge, query_language, record_challenge
 
 
 class SourceConfig(BaseModel, extra="forbid"):
@@ -96,11 +96,14 @@ class TemplateSource(SearchEngine):
         await s.capture_frame(force=True)
         page_url = s.page.url
         text = await s.page.evaluate("() => (document.body ? document.body.innerText : '').slice(0, 800)")
-        if re.search(self.cfg.block_patterns, page_url, re.I) or (
-                len(text) < 800 and re.search(self.cfg.block_patterns, text, re.I)):
+        m = re.search(self.cfg.block_patterns, page_url, re.I) or (
+            re.search(self.cfg.block_patterns, text, re.I) if len(text) < 800 else None)
+        if m:
+            where = "网址" if m.string == page_url else "页面文字（页面很短）"
+            await record_challenge(s, f"{where}命中“{m.group(0)}”（规则 {self.cfg.block_patterns}）", self.name)
             raise EngineBlocked(self.name)
         rows_probe = await s.page.evaluate("(sel) => document.querySelectorAll(sel).length", self.cfg.item)
-        if not rows_probe and await page_is_challenge(s):
+        if not rows_probe and await page_is_challenge(s, where=self.name):
             raise EngineBlocked(self.name)
         if self.cfg.direct_hit and re.search(self.cfg.direct_hit, page_url):
             title = await s.page.title()

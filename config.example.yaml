@@ -41,6 +41,8 @@ security:
 # ---------------------------------------------------------------- 云端浏览器
 browser:
   headless: true                # 调试时可改 false 看到浏览器窗口（仅本机）
+  slow_mo_ms: 0                 # 调试：每个浏览器动作之间放慢的毫秒数（配合 headless: false 观察是什么触发了验证）
+  save_challenge_pages: true    # 判定为人机验证/拦截时保存截图与 HTML 到 logs/challenges/（排查误判用）
   # 浏览器内核：auto = 已下载自带 Chromium 就用它，否则直接用系统已安装的 Edge（Windows 自带）或 Chrome，无需下载；
   #             都没有时（例如 Linux 服务器）才自动从多个源下载 Chromium
   #             bundled = 只用自带 Chromium（会自动下载）；msedge / chrome = 指定系统浏览器
@@ -138,6 +140,13 @@ privacy:
 local_llm:
   ollama_url: http://127.0.0.1:11434
   ollama_models: []             # 例：[qwen3:8b]；显存充足可用 qwen3:32b（智能体需要工具调用/JSON 输出能力）
+
+# ---------------------------------------------------------------- 日志
+# logs/app.log：全局日志（滚动保留 5 份）；logs/tasks/<任务ID>.log：每个任务的执行日志，也可在任务卡片“…”菜单里
+# 点“下载执行日志”。遇到问题时把执行日志（以及 logs/challenges/ 下对应的截图）发给开发者即可排查。
+logs:
+  dir: logs
+  include_prompts: false        # 是否在执行日志里记录发给模型的提示词全文（可能含文件内容，默认关闭）
 
 # ---------------------------------------------------------------- 后台执行器
 worker:

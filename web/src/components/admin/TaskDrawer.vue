@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
-import { ChevronRight, ExternalLink, Loader2, MessageSquare } from 'lucide-vue-next'
+import { ChevronRight, ExternalLink, FileDown, Loader2, MessageSquare } from 'lucide-vue-next'
 import type { AdminTaskDetail } from '@/api/types'
 import { api } from '@/api/client'
 import DrawerTabs from '@/components/admin/DrawerTabs.vue'
@@ -71,6 +71,9 @@ const LIMIT_LABEL: Record<string, string> = {
       <div v-else class="flex items-center gap-2 text-sm text-slate-400"><Loader2 class="h-4 w-4 animate-spin" /> 加载中…</div>
     </template>
     <template #headerActions>
+      <button v-if="t" class="btn-secondary btn-sm shrink-0" title="下载该任务的执行日志（排查用）" @click="api.downloadTaskTrace(t.task_id)">
+        <FileDown class="h-3.5 w-3.5" /> 执行日志
+      </button>
       <RouterLink v-if="t?.conversation_id" :to="{ name: 'chat', params: { id: t.conversation_id } }" class="btn-secondary btn-sm shrink-0">
         <MessageSquare class="h-3.5 w-3.5" /> 打开对话
       </RouterLink>

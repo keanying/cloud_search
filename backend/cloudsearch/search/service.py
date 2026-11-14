@@ -98,6 +98,8 @@ async def browser_search(s: CloudBrowserSession, queries: list[str | SearchQuery
                          ) -> SearchReport:
     """按配置的引擎顺序搜索。strategy=priority：总是先用第一个可用引擎，失败/被拦截/结果无关才换下一个；
     strategy=rotate：每个查询轮换起始引擎以分散负载。"""
+    from ..core.tracelog import trace
+
     settings = get_settings()
     per_query = per_query or settings.search_results_per_query
     exclude = [d.lower().lstrip(".") for d in (exclude_domains or [])]
@@ -112,7 +114,10 @@ async def browser_search(s: CloudBrowserSession, queries: list[str | SearchQuery
         # 指定了垂直来源：优先用该来源，无结果/被拦截时回退到通用引擎
         if sq.source and sq.source in vertical_sources() and health.available([sq.source]):
             engines = [sq.source] + [e for e in engines if e != sq.source]
+        trace("search", f"查询「{sq.query}」", engines=engines, language=sq.language, recency=sq.recency,
+              source=sq.source, purpose=sq.purpose)
         if not engines:
+            trace("search", "所有搜索引擎都在冷却中（之前被拦截或网络不通），跳过", query=sq.query)
             report.per_query[sq.query] = "所有搜索引擎暂时不可用（被拦截或网络不可达，冷却中）"
             report.hit_counts[sq.query] = 0
             continue
@@ -121,16 +126,21 @@ async def browser_search(s: CloudBrowserSession, queries: list[str | SearchQuery
         got: list[SearchHit] = []
         for name in engines:
             engine = all_engines()[name]
+            t0 = time.monotonic()
             try:
+                s.challenge_reason = None
                 async with s.lock:
                     got = await engine.search(s, sq.query, per_query, lang=sq.language, recency=sq.recency)
             except EngineBlocked:
+                why = getattr(s, "challenge_reason", None) or "引擎判定页面为验证/拦截"
+                trace("search", f"{name}：需要人机验证（{time.monotonic() - t0:.1f}s）", reason=why,
+                      url=getattr(getattr(s, "page", None), "url", None))
                 # 人机验证：请用户在实时画面中处理；处理完成后在同一引擎重试一次
                 resolved = False
                 if on_blocked is not None and name not in handed_over:
                     handed_over.add(name)
                     label = getattr(getattr(engine, "cfg", None), "label", None) or name
-                    resolved = await on_blocked(s, f"{label} 要求人机验证，请完成验证后点“完成”")
+                    resolved = await on_blocked(s, f"{label} 要求人机验证，请完成验证后点“完成”（判定依据：{why}）")
                 if resolved:
                     try:
                         async with s.lock:
@@ -141,20 +151,28 @@ async def browser_search(s: CloudBrowserSession, queries: list[str | SearchQuery
                 if not got:
                     health.block(name)
                     report.blocked_engines.append(name)
-                    log.warning("search engine %s blocked; cooling down", name)
+                    log.warning("search engine %s blocked (%s); cooling down", name, why)
+                    trace("search", f"{name}：未通过验证，冷却 {settings.search_engine_cooldown_s}s，换下一个引擎")
                     continue
             except Exception as e:  # noqa: BLE001
                 if isinstance(e, EngineUnavailable) or is_network_error(e):
                     health.block(name, settings.search_unreachable_cooldown_s)
                     report.unreachable_engines.append(name)
                     log.warning("search engine %s unreachable (%s); cooling down", name, str(e)[:120])
+                    trace("search", f"{name}：无法访问，冷却 {settings.search_unreachable_cooldown_s}s",
+                          error=f"{type(e).__name__}: {str(e)[:300]}")
                 else:
                     log.warning("search engine %s failed: %s", name, e)
+                    trace("search", f"{name}：出错", error=f"{type(e).__name__}: {str(e)[:300]}")
                 continue
             if got and not looks_relevant(sq.query, got):
                 log.warning("search engine %s returned irrelevant results for %r; trying next", name, sq.query)
+                trace("search", f"{name}：结果与查询无关（可能被风控返回了无关内容），换下一个引擎",
+                      sample=[h.title for h in got[:3]])
                 got = []
                 continue
+            trace("search", f"{name}：{len(got)} 条结果（{time.monotonic() - t0:.1f}s）",
+                  top=[f"{h.title} | {h.url}" for h in got[:5]])
             if got:
                 report.per_query[sq.query] = name
                 break

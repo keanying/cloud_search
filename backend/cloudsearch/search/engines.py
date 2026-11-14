@@ -9,11 +9,15 @@ from __future__ import annotations
 
 import base64
 import random
+import logging
 import re
 from urllib.parse import parse_qs, quote_plus, unquote, urlencode, urlsplit
 
 from ..browser.pool import CloudBrowserSession
 from ..contracts import SearchHit
+
+
+log = logging.getLogger(__name__)
 
 
 class EngineBlocked(Exception):
@@ -91,24 +95,81 @@ CHALLENGE_TEXT = re.compile(
     r"安全验证|验证码|异常访问|人机验证|请输入验证码|验证您是真人|验证你是真人|确认您是真人|请解决以下难题|"
     r"完成验证后继续|访问过于频繁|captcha|unusual traffic|verify you are (a )?human|are you a robot|"
     r"are you human|security check|one more step|just a moment|bots use", re.I)
-CHALLENGE_JS = r"""() => !!document.querySelector(
-  'iframe[src*="challenges.cloudflare.com"], iframe[src*="recaptcha"], iframe[src*="hcaptcha"], ' +
-  'iframe[title*="challenge" i], iframe[title*="验证"], .cf-turnstile, #challenge-form, #cf-challenge-running, ' +
-  '.g-recaptcha, .h-captcha, [id*="captcha" i], [class*="captcha" i]')"""
+# 只认“看得见”的验证组件（很多正常页面带有隐藏的 captcha 容器，例如登录弹窗），返回命中描述或 null
+CHALLENGE_JS = r"""() => {
+  const sels = ['iframe[src*="challenges.cloudflare.com"]', 'iframe[src*="recaptcha"]', 'iframe[src*="hcaptcha"]',
+    'iframe[title*="challenge" i]', 'iframe[title*="验证"]', '.cf-turnstile', '#challenge-form', '#cf-challenge-running',
+    '.g-recaptcha', '.h-captcha', '[id*="captcha" i]', '[class*="captcha" i]'];
+  for (const sel of sels) {
+    for (const el of document.querySelectorAll(sel)) {
+      const r = el.getBoundingClientRect(), st = getComputedStyle(el);
+      if (r.width < 20 || r.height < 20 || st.display === 'none' || st.visibility === 'hidden' || st.opacity === '0')
+        continue;
+      const cls = typeof el.className === 'string' ? el.className.trim().split(/\s+/).slice(0, 2).join('.') : '';
+      return sel + ' → <' + el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + (cls ? '.' + cls : '') +
+        '> ' + Math.round(r.width) + '×' + Math.round(r.height);
+    }
+  }
+  return null;
+}"""
 
 
-async def page_is_challenge(s: CloudBrowserSession, url_patterns: str = r"captcha|challenge|/sorry/") -> bool:
-    """当前页面是否为人机验证/风控页。"""
-    if re.search(url_patterns, s.page.url, re.I):
-        return True
+async def challenge_reason(s: CloudBrowserSession, url_patterns: str = r"captcha|challenge|/sorry/") -> str | None:
+    """判定当前页面是否为人机验证/风控页；是则返回命中的规则（用于日志与排查），否则 None。"""
+    m = re.search(url_patterns, s.page.url, re.I)
+    if m:
+        return f"网址命中“{m.group(0)}”"
     try:
-        if await s.page.evaluate(CHALLENGE_JS):
-            return True
+        widget = await s.page.evaluate(CHALLENGE_JS)
+        if widget:
+            return f"页面上有可见的验证组件：{widget}"
         text = await s.page.evaluate("() => (document.body ? document.body.innerText : '').slice(0, 1500)")
         title = await s.page.title()
-    except Exception:  # noqa: BLE001
-        return True
-    return bool(CHALLENGE_TEXT.search(title + " " + text))
+    except Exception as e:  # noqa: BLE001
+        return f"读取页面失败（{type(e).__name__}），按拦截处理"
+    m = CHALLENGE_TEXT.search(title + " " + text)
+    if m:
+        i = (title + " " + text).find(m.group(0))
+        ctx = (title + " " + text)[max(0, i - 20): i + 30].replace("\n", " ")
+        return f"页面文字含“{m.group(0)}”：…{ctx}…"
+    return None
+
+
+async def record_challenge(s: CloudBrowserSession, reason: str, where: str) -> None:
+    """记录一次“判定为验证/拦截”：写执行日志与全局日志，保存截图与 HTML 作为证据（logs/challenges/）。"""
+    from ..core.config import get_settings
+    from ..core.tracelog import current_task, logs_dir, trace
+
+    s.challenge_reason = reason
+    url = s.page.url
+    files: list[str] = []
+    if get_settings().browser_save_challenge_pages:
+        try:
+            import time as _t
+            from urllib.parse import urlsplit
+
+            d = logs_dir() / "challenges"
+            d.mkdir(parents=True, exist_ok=True)
+            stem = f"{_t.strftime('%Y%m%d-%H%M%S')}_{current_task.get() or 'adhoc'}_{(urlsplit(url).hostname or 'page')}"
+            await s.page.screenshot(path=str(d / f"{stem}.png"), full_page=False)
+            (d / f"{stem}.html").write_text(await s.page.content(), encoding="utf-8")
+            files = [f"logs/challenges/{stem}.png", f"logs/challenges/{stem}.html"]
+            olds = sorted(d.glob("*"), key=lambda p: p.stat().st_mtime)
+            for p in olds[:-200]:  # 最多保留 200 个文件
+                p.unlink(missing_ok=True)
+        except Exception:  # noqa: BLE001
+            pass
+    log.warning("判定为人机验证/拦截：%s｜%s｜%s", where, reason, url)
+    trace("challenge", f"{where} 判定为人机验证/拦截：{reason}", url=url, evidence=files or None)
+
+
+async def page_is_challenge(s: CloudBrowserSession, url_patterns: str = r"captcha|challenge|/sorry/",
+                            where: str = "") -> bool:
+    """当前页面是否为人机验证/风控页（命中时记录原因与证据）。"""
+    reason = await challenge_reason(s, url_patterns)
+    if reason:
+        await record_challenge(s, reason, where or "页面")
+    return bool(reason)
 
 
 class SearchEngine:
@@ -123,11 +184,13 @@ class SearchEngine:
     async def _blocked(self, s: CloudBrowserSession, patterns: str) -> bool:
         try:
             html_len = await s.page.evaluate("() => document.documentElement.outerHTML.length")
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            await record_challenge(s, f"读取页面失败（{type(e).__name__}）", self.name)
             return True
         if html_len < 1000:
+            await record_challenge(s, f"页面内容过少（HTML 仅 {html_len} 字符，疑似拦截页）", self.name)
             return True
-        return await page_is_challenge(s, patterns)
+        return await page_is_challenge(s, patterns, where=self.name)
 
     def _hits(self, query: str, rows: list[dict], n: int) -> list[SearchHit]:
         hits: list[SearchHit] = []
@@ -294,14 +357,24 @@ class DuckDuckGoEngine(SearchEngine):
     BLOCK_TEXT = CHALLENGE_TEXT
 
     async def _is_blocked(self, s: CloudBrowserSession) -> bool:
-        if re.search(self.BLOCK_URL, s.page.url, re.I):
+        m = re.search(self.BLOCK_URL, s.page.url, re.I)
+        if m:
+            await record_challenge(s, f"网址命中“{m.group(0)}”", self.name)
             return True
         try:
             text = await s.page.evaluate("() => (document.body ? document.body.innerText : '').slice(0, 800)")
             has_modal = await s.page.evaluate("() => !!document.querySelector('.anomaly-modal__modal, #challenge-form')")
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            await record_challenge(s, f"读取页面失败（{type(e).__name__}）", self.name)
             return True
-        return has_modal or bool(self.BLOCK_TEXT.search(text)) or await page_is_challenge(s, self.BLOCK_URL)
+        if has_modal:
+            await record_challenge(s, "页面出现 DuckDuckGo 异常流量弹窗（.anomaly-modal / #challenge-form）", self.name)
+            return True
+        m = self.BLOCK_TEXT.search(text)
+        if m:
+            await record_challenge(s, f"页面文字含“{m.group(0)}”", self.name)
+            return True
+        return await page_is_challenge(s, self.BLOCK_URL, where=self.name)
 
     def _rows(self, rows: list[dict]) -> list[dict]:
         out = []

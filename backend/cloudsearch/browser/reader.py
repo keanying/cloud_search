@@ -42,19 +42,30 @@ class PageRead:
     meta: dict = field(default_factory=dict)
 
 
+def blocked_reason(url: str, title: str, text: str) -> str | None:
+    """页面是否像验证/登录/访问限制页；返回命中的规则（只对正文很短的页面判定）。"""
+    if len(text) >= 800:
+        return None
+    m = BLOCK_URL_PATTERNS.search(urlsplit(url).path + "?" + (urlsplit(url).query or ""))
+    if m:
+        return f"正文很短（{len(text)} 字）且网址含“{m.group(0)}”"
+    m = BLOCK_TEXT_PATTERNS.search(title + " " + text[:800])
+    if m:
+        return f"正文很短（{len(text)} 字）且含“{m.group(0)}”"
+    return None
+
+
 def looks_blocked(url: str, title: str, text: str) -> bool:
-    short = len(text) < 800
-    return bool(BLOCK_URL_PATTERNS.search(urlsplit(url).path + "?" + (urlsplit(url).query or ""))
-                and short) or bool(short and BLOCK_TEXT_PATTERNS.search(title + " " + text[:800]))
+    return blocked_reason(url, title, text) is not None
 
 
-async def _has_challenge_widget(s: CloudBrowserSession) -> bool:
+async def _challenge_widget(s: CloudBrowserSession) -> str | None:
     from ..search.engines import CHALLENGE_JS
 
     try:
-        return bool(await s.page.evaluate(CHALLENGE_JS))
+        return await s.page.evaluate(CHALLENGE_JS)
     except Exception:  # noqa: BLE001
-        return False
+        return None
 
 
 def extract_main_text(html: str, url: str) -> dict:
@@ -126,8 +137,15 @@ async def read_url(s: CloudBrowserSession, url: str, *, min_chars: int = 200, ac
             if resp is not None and resp.status >= 400:
                 status = "blocked" if resp.status in (401, 403, 429) else "failed"
                 return PageRead(status, url, final_url, title=title, reason=f"HTTP {resp.status}")
-            if looks_blocked(final_url, title, body_text) or (len(body_text) < 1500 and await _has_challenge_widget(s)):
-                return PageRead("blocked", url, final_url, title=title, reason="遇到验证/登录/访问限制，未绕过")
+            why = blocked_reason(final_url, title, body_text)
+            if why is None and len(body_text) < 1500:
+                widget = await _challenge_widget(s)
+                why = f"正文较短（{len(body_text)} 字）且有可见的验证组件：{widget}" if widget else None
+            if why:
+                from ..search.engines import record_challenge
+
+                await record_challenge(s, why, "读取网页")
+                return PageRead("blocked", url, final_url, title=title, reason=f"遇到验证/登录/访问限制，未绕过（{why}）"[:250])
             meta = extract_main_text(html, final_url)
             text = meta.get("text") or ""
             if len(text) < min_chars and len(body_text) > len(text):

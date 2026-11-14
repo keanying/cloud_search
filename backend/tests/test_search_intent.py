@@ -242,14 +242,17 @@ async def test_challenge_page_detection():
     class Sess:
         def __init__(self, page):
             self.page = page
+            self.challenge_reason = None
 
     async with async_playwright() as p:
         b = await p.chromium.launch(**choice["launch_kwargs"])
         page = await b.new_page()
         await page.set_content(BING_CHALLENGE)
         assert await page_is_challenge(Sess(page)) is True  # 用户截图中的必应验证页
-        await page.set_content('<div class="cf-turnstile"></div><p>Checking your browser</p>')
-        assert await page_is_challenge(Sess(page)) is True  # 验证组件
+        await page.set_content('<div class="cf-turnstile" style="width:300px;height:65px"></div><p>Checking</p>')
+        assert await page_is_challenge(Sess(page)) is True  # 可见的验证组件（真实 Turnstile 约 300×65）
+        await page.set_content('<div class="cf-turnstile" style="display:none"></div><p>' + '正文' * 100 + '</p>')
+        assert await page_is_challenge(Sess(page)) is False  # 隐藏的组件不算
         await page.set_content(RESULTS_PAGE)
         # 结果页可能含“验证码”字样：引擎实现只在“没有解析到结果”时才做文字判断，避免误判
         await b.close()

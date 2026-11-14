@@ -35,6 +35,7 @@ class CloudBrowserSession:
         self.context = context
         self.page = page
         self.lock = asyncio.Lock()  # 单 context 串行动作
+        self.challenge_reason: str | None = None  # 最近一次判定为验证/拦截的原因（排查用）
         self._frame_seq = 0
         self._last_frame = 0.0
         self._interval = get_settings().browser_frame_interval_s
@@ -115,6 +116,8 @@ class BrowserPool:
                     raise RuntimeError("未找到可用的浏览器：请运行启动脚本下载 Chromium，或在 config.yaml 设置 "
                                        "browser.channel: msedge / chrome（使用系统已安装的浏览器）")
                 kwargs: dict = {"headless": s.browser_headless, **choice["launch_kwargs"]}
+                if s.browser_slow_mo_ms > 0:
+                    kwargs["slow_mo"] = s.browser_slow_mo_ms  # 调试：放慢每个动作，配合有头模式观察
                 if s.browser_proxy:
                     kwargs["proxy"] = {"server": s.browser_proxy}
                 self._browser = await self._pw.chromium.launch(**kwargs)

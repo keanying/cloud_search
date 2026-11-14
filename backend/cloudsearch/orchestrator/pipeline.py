@@ -293,6 +293,11 @@ class Pipeline:
             segs = segments(await load_markdown(f))
             items += [(f, k, label, text, len(segs)) for k, (label, text) in enumerate(segs, 1)]
         chosen, partial = self._pick_file_segments(items)
+        from ..core.tracelog import trace
+
+        trace("files", f"文件分段 {len(items)} 段，精读 {len(chosen)} 段",
+              files=[{"name": f.display_name, "parser": f.parser_name, "chars": f.char_qty} for f in rows],
+              chosen=[f"{f.display_name}#{k} {label}" for f, k, label, _t, _n in chosen], failed=failed or None)
         for f, k, label, text, nseg in chosen:
             srid = new_id("srcrev")
             ref, chash = await self.storage.put(f"sources/{c.task_id}/{srid}.txt", text.encode("utf-8"))
@@ -570,9 +575,15 @@ class Pipeline:
         return chosen or fallback()
 
     async def _read_fn(self, c: TaskExecContext, sess, candidate_id: str, url: str) -> StepResult:
+        from ..core.tracelog import trace
+
         goal = "；".join(self.spec.scope.questions) or self.spec.requirement_text
+        t0 = asyncio.get_running_loop().time()
         r = await read_source(sess, url, goal=goal, ctx=c, on_blocked=self._handoff(c))
         final = r.final_url or url
+        trace("read", f"{ {'captured': '读取成功', 'blocked': '受限', 'failed': '失败', 'no_content': '无正文'}.get(r.status, r.status) }"
+              f"（{asyncio.get_running_loop().time() - t0:.1f}s）：{url}", final_url=final if final != url else None,
+              title=r.title, chars=len(r.text or ""), reason=r.reason)
         if r.status == "captured" and normalize_url(final) in self.read_urls:
             return StepResult({"status": "duplicate", "url": url, "final_url": final})
         srid = new_id("srcrev")

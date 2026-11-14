@@ -40,9 +40,13 @@ async def _publish(task_id: str, part: dict, event: str) -> None:
 
 async def request_takeover(ctx: TaskExecContext, browser_session_id: str, reason: str) -> bool:
     """请求人工接管并等待结果；返回 True 表示用户已处理完成（调用方应重试刚才的动作）。"""
+    from ..core.tracelog import trace
+
     s = get_settings()
     if not s.browser_takeover_enabled:
+        trace("takeover", "需要人工处理，但已关闭“请用户接手”（browser.takeover_enabled），直接跳过", reason=reason)
         return False
+    trace("takeover", "请求用户接手处理", reason=reason, timeout_s=s.browser_takeover_timeout_s)
     deadline = utcnow() + timedelta(seconds=s.browser_takeover_timeout_s)
     part_id = f"takeover-{new_id('h')}"
     async with session_scope() as db:
@@ -89,4 +93,5 @@ async def request_takeover(ctx: TaskExecContext, browser_session_id: str, reason
         await asyncio.shield(_publish(ctx.task_id, takeover_part(part_id, ctx.task_id, browser_session_id, reason,
                                                                  outcome, deadline), f"takeover_{outcome}"))
         log.info("takeover %s for %s", outcome, browser_session_id)
+    trace("takeover", f"接手结果：{ {'resolved': '用户已完成', 'skipped': '用户选择跳过', 'timeout': '等待超时'}.get(outcome, outcome) }")
     return outcome == "resolved"

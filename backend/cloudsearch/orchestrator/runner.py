@@ -77,17 +77,34 @@ async def execute_run(run_id: str, lease_epoch: int, worker_id: str) -> None:
                               max_llm_requests=spec.limits.max_llm_requests,
                               budget_limit_minor_amt=task.budget_limit_minor_amt)
         conversation_id = task.conversation_id
+        run_seq = run.run_seq_no
+    import traceback
+
+    from ..core.tracelog import config_summary, current_task, trace
+
+    token = current_task.set(ctx.task_id)
+    trace("run", f"开始执行（第 {run_seq} 轮，worker {worker_id}）", run_id=run_id,
+          task={"mode": spec.mode, "title": spec.title, "requirement": spec.requirement_text,
+                "questions": spec.scope.questions, "file_ids": spec.scope.file_ids, "use_web": spec.scope.use_web,
+                "include_domains": spec.scope.include_domains, "limits": spec.limits.model_dump()},
+          config=config_summary())
     stop_hb = asyncio.Event()
     hb = asyncio.create_task(_heartbeat(ctx, stop_hb))
     try:
         outcome = await Pipeline(ctx, spec, conversation_id=conversation_id).run()
     except LeaseLost:
         log.warning("lease lost for run %s; abandoning without state changes", run_id)
+        trace("run", "租约丢失，本 worker 放弃执行（任务可能被其他 worker 接手）")
+        current_task.reset(token)
         return
     except TaskInterrupted as e:
+        trace("run", f"被用户中断：{e.kind}")
         await _finish_interrupted(ctx, e.kind)
+        current_task.reset(token)
         return
     except BudgetExhausted as e:
+        trace("run", f"额度用尽：{e}")
+        current_task.reset(token)
         await _finish(ctx, "partial_failed", error_code="budget_exhausted", error_desc=str(e),
                       parts=[{"type": "error", "part_id": f"error-{ctx.task_id}", "code": "budget_exhausted",
                               "message": f"已达到本任务的额度上限（{e}），已停止新的模型调用；已读取的来源保留。",
@@ -95,6 +112,8 @@ async def execute_run(run_id: str, lease_epoch: int, worker_id: str) -> None:
         return
     except Exception as e:  # noqa: BLE001
         log.exception("run %s failed", run_id)
+        trace("run", f"执行出错：{type(e).__name__}: {str(e)[:500]}", traceback=traceback.format_exc()[-4000:])
+        current_task.reset(token)
         await _finish(ctx, "failed", error_code=type(e).__name__, error_desc=str(e)[:2000],
                       parts=[{"type": "error", "part_id": f"error-{ctx.task_id}", "code": type(e).__name__,
                               "message": _friendly_error(e), "task_id": ctx.task_id}])
@@ -105,6 +124,9 @@ async def execute_run(run_id: str, lease_epoch: int, worker_id: str) -> None:
 
     # 单个网页受限/失败属于覆盖缺口（在成果中说明），不使整个任务失败；没有任何可交付成果才是 failed
     status = "completed" if outcome.delivered else "failed"
+    trace("run", f"结束：{status}", error_code=outcome.error_code, error_desc=outcome.error_desc,
+          technical_failures=outcome.technical_failures, artifacts=len(outcome.artifact_ids) + len(outcome.bundles))
+    current_task.reset(token)
     await _finish(ctx, status, error_code=outcome.error_code, error_desc=outcome.error_desc, parts=outcome.parts,
                   artifact_ids=outcome.artifact_ids, bundles=outcome.bundles)
 
