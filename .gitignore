@@ -21,3 +21,4 @@ config.yaml.bak-*
 # 本机 MinerU（环境与模型）
 .venv-mineru/
 .mineru/
+.mineru-service.lock
