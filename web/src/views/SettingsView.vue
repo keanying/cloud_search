@@ -51,8 +51,8 @@ watch(defaultMode, (v) => localStorage.setItem(PREF_KEY, v))
 
           <div class="hairline mt-5 flex items-start justify-between gap-4 border-t pt-5">
             <div>
-              <div class="text-sm font-semibold text-white" id="auto-open-label">搜索时自动打开浏览器</div>
-              <p class="mt-0.5 text-xs text-slate-500">任务开始使用云端浏览器时，在右侧自动打开实时画面；关闭面板不影响后台任务。需要人工协助（如人机验证）时总会打开。</p>
+              <div class="text-sm font-semibold text-white" id="auto-open-label">搜索时显示浏览器小窗</div>
+              <p class="mt-0.5 text-xs text-slate-500">任务使用云端浏览器时，在右侧“本次任务”底部显示实时小窗，点击在页面中间放大查看。需要人工协助（如人机验证）时总会在页面中间打开浏览器。</p>
             </div>
             <button
               role="switch"

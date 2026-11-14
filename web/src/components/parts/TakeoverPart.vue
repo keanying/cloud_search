@@ -30,7 +30,7 @@ const finalLabel = computed(
 )
 
 function showBrowser() {
-  panel.openBrowser(props.part.task_id, props.part.browser_session_id)
+  panel.openBrowserModal(props.part.task_id, props.part.browser_session_id)
 }
 
 async function takeOver() {

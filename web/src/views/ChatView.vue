@@ -13,9 +13,7 @@ import { useUiStore } from '@/stores/ui'
 import { ChatActionsKey } from '@/lib/chatActions'
 import { taskStatusLabel } from '@/lib/format'
 import { useChatStore } from '@/stores/chat'
-import { usePrefsStore } from '@/stores/prefs'
-import type { ProgressPart, TakeoverPart } from '@/api/types'
-import { ACTIVE_STATUSES } from '@/lib/format'
+import type { TakeoverPart } from '@/api/types'
 import { usePanelStore } from '@/stores/panel'
 import { useToastStore } from '@/stores/toast'
 import { useAttachments } from '@/lib/useAttachments'
@@ -24,7 +22,6 @@ const props = defineProps<{ id: string }>()
 const chat = useChatStore()
 const panel = usePanelStore()
 const toast = useToastStore()
-const prefs = usePrefsStore()
 const ui = useUiStore()
 const wide = useMedia(WIDE_QUERY)
 
@@ -161,31 +158,20 @@ async function stopTurn() {
 }
 
 /**
- * 自动打开浏览器阅览：
- * - 任务开始使用云端浏览器（progress.browser_available）且仍在执行时，按设置自动打开一次；用户关闭后同一任务不再弹出
- * - 任务请求人工协助（takeover 卡片 requested）时，总是打开到对应会话
+ * 浏览器：一律在居中大窗里打开（只显示浏览器画面）。
+ * - 搜索/读网页时不自动弹出，右侧“本次任务”底部有小窗（设置里“搜索时显示浏览器小窗”控制）；
+ * - 任务请求人工协助（takeover 卡片 requested）时，总是在居中大窗里打开对应会话。
  */
 const handledTakeovers = new Set<string>()
 watch(
-  () => chat.messages.flatMap((m) => m.parts.filter((p) => p.type === 'progress' || p.type === 'takeover')),
+  () => chat.messages.flatMap((m) => m.parts.filter((p) => p.type === 'takeover')),
   (parts) => {
     for (const p of parts) {
-      if (p.type === 'takeover') {
-        const t = p as TakeoverPart
-        if (t.state === 'requested' && !handledTakeovers.has(t.part_id)) {
-          handledTakeovers.add(t.part_id)
-          // 需要你处理验证：宽屏在居中大窗里打开（只显示浏览器和操作条），窄屏用右侧面板
-          if (wide.value) panel.openBrowserModal(t.task_id, t.browser_session_id)
-          else panel.openBrowser(t.task_id, t.browser_session_id)
-        }
-        continue
+      const t = p as TakeoverPart
+      if (t.state === 'requested' && !handledTakeovers.has(t.part_id)) {
+        handledTakeovers.add(t.part_id)
+        panel.openBrowserModal(t.task_id, t.browser_session_id)
       }
-      const pr = p as ProgressPart
-      const status = chat.tasks[pr.task_id]?.task_status ?? pr.task_status
-      if (!prefs.autoOpenBrowser || !pr.browser_available || !ACTIVE_STATUSES.has(status)) continue
-      if (wide.value) continue // 宽屏：右侧“本次任务”底部有浏览器小窗，点击再放大，不自动占满右栏
-      if (panel.autoOpenedTaskIds.includes(pr.task_id)) continue
-      panel.autoOpenBrowser(pr.task_id)
     }
   },
   { deep: true },

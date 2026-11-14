@@ -15,6 +15,7 @@ import {
 } from '@/lib/format'
 import { FORMAT_LABEL, FORMAT_TONE, downloadFormat, partFormats, previewArtifactId } from '@/lib/artifactFormats'
 import { useChatStore } from '@/stores/chat'
+import { usePrefsStore } from '@/stores/prefs'
 import { usePanelStore } from '@/stores/panel'
 import { useToastStore } from '@/stores/toast'
 import StatusBadge from '@/components/common/StatusBadge.vue'
@@ -29,6 +30,7 @@ import { fileIdFromUrl } from '@/lib/fileTypes'
 defineProps<{ closable?: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 const chat = useChatStore()
+const prefs = usePrefsStore()
 const panel = usePanelStore()
 const toast = useToastStore()
 
@@ -236,7 +238,7 @@ function siteName(s: SourceOut) {
             {{ task.error_desc }}
           </p>
           <div class="mt-4 flex flex-wrap gap-2">
-            <button v-if="progress?.browser_available" class="btn-primary btn-sm" @click="panel.openBrowser(taskId!)">
+            <button v-if="progress?.browser_available" class="btn-primary btn-sm" @click="panel.openBrowserModal(taskId!)">
               <Globe class="h-3.5 w-3.5" /> {{ active ? '看它在读什么' : '浏览器记录' }}
             </button>
             <button class="btn-secondary btn-sm" @click="panel.openSources(taskId!)">
@@ -351,7 +353,7 @@ function siteName(s: SourceOut) {
       </section>
 
       <!-- 搜索/读取网页时的浏览器小窗（点击放大） -->
-      <MiniBrowser v-if="taskId" :task-id="taskId" :active="active" />
+      <MiniBrowser v-if="taskId && prefs.autoOpenBrowser" :task-id="taskId" :active="active" />
     </div>
   </aside>
 </template>

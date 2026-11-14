@@ -118,7 +118,7 @@ async function run(fn: () => Promise<TaskOut>, okText: string) {
     <p v-if="status === 'stopped'" class="mt-3 text-xs text-slate-300">已停止。停止前已提交的来源与成果已保留。</p>
 
     <div class="mt-4 flex flex-wrap items-center gap-2">
-      <button v-if="part.browser_available" class="btn-primary btn-sm" @click="panel.openBrowser(part.task_id)">
+      <button v-if="part.browser_available" class="btn-primary btn-sm" @click="panel.openBrowserModal(part.task_id)">
         <Globe class="h-3.5 w-3.5" /> 查看浏览器
       </button>
       <button class="btn-secondary btn-sm" @click="panel.openSources(part.task_id)">
