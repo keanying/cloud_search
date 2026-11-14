@@ -387,12 +387,14 @@ class DuckDuckGoEngine(SearchEngine):
         return out
 
     async def search(self, s: CloudBrowserSession, query: str, n: int, *, lang: str | None = None,
-                     recency: str | None = None) -> list[SearchHit]:
+                     recency: str | None = None, via: str | None = None) -> list[SearchHit]:
+        """via=http：只用 duckduckgo-mcp-server；via=browser：只用浏览器；None：按 search.ddg_backend。
+        搜索服务按“先全部 HTTP 方式、后浏览器”的顺序分两次调用（http / browser）。"""
         from ..core.config import get_settings
         from ..core.tracelog import trace
         from .http_engines import HttpBlocked, ddg_http_search
 
-        mode = get_settings().search_ddg_backend  # auto：先 HTTP（快、不开浏览器），被拦再用浏览器
+        mode = via or get_settings().search_ddg_backend  # auto：先 HTTP（快、不开浏览器），被拦再用浏览器
         if mode in ("auto", "http"):
             try:
                 await s.set_activity(f"DuckDuckGo 搜索（HTTP）：{query}")
@@ -430,9 +432,10 @@ class DuckDuckGoEngine(SearchEngine):
 
 
 class DdgsEngine(SearchEngine):
-    """ddgs 多引擎聚合（Brave、Mojeek、Yahoo、Wikipedia 等），HTTP 方式，不开浏览器。"""
+    """ddgs 多引擎聚合（Brave、Bing、Mojeek、Yahoo、Wikipedia 等），HTTP 方式，不开浏览器。"""
 
     name, host = "ddgs", ""
+    http_only = True
 
     async def search(self, s: CloudBrowserSession, query: str, n: int, *, lang: str | None = None,
                      recency: str | None = None) -> list[SearchHit]:

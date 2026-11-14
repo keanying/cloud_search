@@ -39,7 +39,7 @@ FIELDS: list[Field] = [
     Field("search_vertical_sources", "可用的垂直来源", "search", "multi",
           "搜索规划智能体可以按需选用这些专门来源（百科、论文、公众号等）。全部取消则只用通用引擎。"),
     Field("search_ddg_backend", "DuckDuckGo 搜索方式", "search", "select",
-          "auto：先用 HTTP 接口（快、不开浏览器），被拦截再用浏览器；http：只用 HTTP；browser：只用浏览器（遇到验证可请你接手）。"),
+          "auto：先用 HTTP 接口（快、不开浏览器），所有不开浏览器的方式都失败后再用浏览器；http：只用 HTTP；browser：只用浏览器（遇到验证可请你接手）。"),
     Field("search_results_per_query", "每个查询取结果数", "search", "int",
           "每次搜索从结果页读取的条数。越多候选越全，但筛选更慢。", 3, 20),
     Field("search_engine_cooldown_s", "被拦截后冷却（秒）", "search", "int",
@@ -55,6 +55,9 @@ FIELDS: list[Field] = [
           "单个任务允许的模型调用总次数，防止异常任务消耗过多费用。", 10, 400),
     Field("task_max_extra_waves", "研究任务补查轮数", "task", "int",
           "深入研究时，按子问题评估覆盖度后针对缺口补充搜索的最多轮数。0 表示不补查。", 0, 4),
+    Field("browser_read_mode", "读网页方式", "browser", "select",
+          "auto：先用 HTTP 直接请求并抽取正文（不开浏览器，最不容易触发人机验证），拿不到再用云端浏览器；"
+          "http：只用 HTTP；browser：只用浏览器。"),
     Field("browser_takeover_enabled", "人机验证时请求人工接手", "browser", "bool",
           "遇到验证码/人机验证时暂停任务，在实时画面中请用户完成验证；关闭则直接跳过该网站。"),
     Field("browser_takeover_timeout_s", "等待接手时长（秒）", "browser", "int",
@@ -97,6 +100,9 @@ def options_for(f: Field) -> list[dict] | None:
         return [{"value": "priority", "label": "按顺序优先"}, {"value": "rotate", "label": "轮换"}]
     if f.key == "search_ddg_backend":
         return [{"value": "auto", "label": "自动"}, {"value": "http", "label": "仅 HTTP"},
+                {"value": "browser", "label": "仅浏览器"}]
+    if f.key == "browser_read_mode":
+        return [{"value": "auto", "label": "自动（先 HTTP）"}, {"value": "http", "label": "仅 HTTP"},
                 {"value": "browser", "label": "仅浏览器"}]
     if f.key == "search_vertical_sources":
         return [{"value": n, "label": lab} for n, lab in _engines()[1]]

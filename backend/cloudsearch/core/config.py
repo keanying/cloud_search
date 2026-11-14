@@ -185,6 +185,8 @@ class Settings(BaseSettings):
     # 人工接管：遇到人机验证/登录墙时暂停并请用户在实时画面中处理；超时则按原逻辑（换引擎/标记受限）继续
     browser_takeover_enabled: bool = True
     browser_takeover_timeout_s: int = 300
+    # 读网页方式：auto（先用 HTTP 直接请求并抽取正文，拿不到再开浏览器，最不容易触发人机验证）/ http / browser
+    browser_read_mode: str = "auto"
 
     # 浏览器搜索：引擎顺序与被拦截后的冷却时间
     search_engines: list[str] = ["duckduckgo", "ddgs", "google", "bing", "baidu", "sogou"]
@@ -193,7 +195,7 @@ class Settings(BaseSettings):
     # DuckDuckGo 方式：auto（先 HTTP 接口，被拦再用浏览器）/ http（只用 HTTP）/ browser（只用浏览器，可人工处理验证）
     search_ddg_backend: str = "auto"
     search_ddg_rpm: int = 30  # DuckDuckGo HTTP 接口每分钟最多请求次数
-    search_ddgs_backends: str = "brave, mojeek, yahoo, wikipedia"  # ddgs 聚合使用的引擎（逗号分隔，或 auto）
+    search_ddgs_backends: str = "brave, bing, mojeek, yahoo, wikipedia"  # ddgs 聚合使用的引擎（逗号分隔，或 auto）
     search_engine_cooldown_s: int = 600
     search_unreachable_cooldown_s: int = 300
     # 可供搜索规划选用的垂直来源（None = 全部内置来源）与用户自定义来源（见 search/sources.py SourceConfig）

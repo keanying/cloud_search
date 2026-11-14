@@ -194,6 +194,7 @@ PAGES = {
 class FakeBrowser:
     read_gate: asyncio.Event | None = None
     reads: list[str] = field(default_factory=list)
+    http_reads: list[str] = field(default_factory=list)
     queries: list = field(default_factory=list)       # 实际提交的搜索（SearchQuery）
     empty_queries: set[str] = field(default_factory=set)  # 这些查询返回无结果
 
@@ -251,7 +252,12 @@ def fake_browser(env, monkeypatch):
 
     monkeypatch.setattr(pipeline, "get_pool", lambda: FakePool())
     monkeypatch.setattr(pipeline, "browser_search", fake_search)
+    async def fake_read_http(url, *, min_chars=200):
+        fb.http_reads.append(url)
+        return PageRead("no_content", url, url, reason="测试：HTTP 读取正文过短")  # 回退到（假的）浏览器读取
+
     monkeypatch.setattr(pipeline, "read_source", fake_read)
+    monkeypatch.setattr(pipeline, "read_http", fake_read_http)
     return fb
 
 

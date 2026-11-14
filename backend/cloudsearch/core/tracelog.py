@@ -84,9 +84,11 @@ def config_summary() -> dict[str, Any]:
     s = get_settings()
     return {
         "browser": {"headless": s.browser_headless, "channel": s.browser_channel, "proxy": bool(s.browser_proxy),
-                    "locale": s.browser_locale, "takeover": s.browser_takeover_enabled},
+                    "locale": s.browser_locale, "takeover": s.browser_takeover_enabled,
+                    "read_mode": s.browser_read_mode},
         "search": {"engines": s.search_engines, "strategy": s.search_strategy,
-                   "vertical": s.search_vertical_sources, "per_query": s.search_results_per_query},
+                   "vertical": s.search_vertical_sources, "per_query": s.search_results_per_query,
+                   "ddg_backend": s.search_ddg_backend, "ddgs_backends": s.search_ddgs_backends},
         "task": {"max_sources": s.task_max_sources, "max_queries": s.task_max_queries,
                  "read_concurrency": s.task_read_concurrency, "max_extra_waves": s.task_max_extra_waves},
         "files": {"parser": s.files_parser, "mineru_local": s.mineru_local, "mineru_api": bool(s.mineru_api_url),

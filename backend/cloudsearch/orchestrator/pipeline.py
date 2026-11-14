@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..agents import analyst, coordinator, extractor, report_writer, search_planner, verifier
 from ..agents.browser_researcher import read_source
+from ..browser.http_reader import read_http
 from ..browser.pool import get_pool
 from ..contracts import EvidenceRef, SearchHit, SearchQuery, SourceDoc, TaskSpec
 from ..core.config import get_settings
@@ -579,11 +580,24 @@ class Pipeline:
 
         goal = "；".join(self.spec.scope.questions) or self.spec.requirement_text
         t0 = asyncio.get_running_loop().time()
-        r = await read_source(sess, url, goal=goal, ctx=c, on_blocked=self._handoff(c))
+        mode = get_settings().browser_read_mode
+        r, method = None, "browser"
+        if mode in ("auto", "http"):
+            # 先不开浏览器：HTTP 直接请求 + 抽取正文（浏览器访问网站更容易触发人机验证）
+            r = await read_http(url)
+            method = "http"
+            if r.status != "captured":
+                trace("read", f"HTTP 读取未拿到正文：{url}", status=r.status, reason=r.reason,
+                      next="浏览器" if mode == "auto" else None)
+                if mode == "auto":
+                    r = None
+        if r is None:
+            r = await read_source(sess, url, goal=goal, ctx=c, on_blocked=self._handoff(c))
+            method = "browser"
         final = r.final_url or url
         trace("read", f"{ {'captured': '读取成功', 'blocked': '受限', 'failed': '失败', 'no_content': '无正文'}.get(r.status, r.status) }"
-              f"（{asyncio.get_running_loop().time() - t0:.1f}s）：{url}", final_url=final if final != url else None,
-              title=r.title, chars=len(r.text or ""), reason=r.reason)
+              f"（{'HTTP' if method == 'http' else '浏览器'}，{asyncio.get_running_loop().time() - t0:.1f}s）：{url}",
+              final_url=final if final != url else None, title=r.title, chars=len(r.text or ""), reason=r.reason)
         if r.status == "captured" and normalize_url(final) in self.read_urls:
             return StepResult({"status": "duplicate", "url": url, "final_url": final})
         srid = new_id("srcrev")
@@ -598,8 +612,8 @@ class Pipeline:
         row = SourceRevision(source_revision_id=srid, project_id=c.project_id, task_id=c.task_id,
                              candidate_id=candidate_id, source_no=n, request_url=url[:2048], final_url=final[:2048],
                              title=(r.title or None) and r.title[:512], site_name=r.site_name, author=r.author,
-                             publish_time_text=r.publish_time_text, retrieved_time=now, access_method="browser",
-                             browser_session_id=sess.browser_session_id, content_hash=chash, content_ref=content_ref,
+                             publish_time_text=r.publish_time_text, retrieved_time=now, access_method=method,
+                             browser_session_id=sess.browser_session_id if method == "browser" else None, content_hash=chash, content_ref=content_ref,
                              text_char_qty=len(r.text), revision_status=r.status,
                              failure_reason=(r.reason or None) and r.reason[:256])
 
@@ -611,7 +625,7 @@ class Pipeline:
 
         return StepResult({"status": r.status, "source_revision_id": srid, "n": n, "url": url, "final_url": final,
                            "title": r.title, "site_name": r.site_name, "publish_time_text": r.publish_time_text,
-                           "retrieved_time": iso(now), "access_method": "browser", "content_ref": content_ref,
+                           "retrieved_time": iso(now), "access_method": method, "content_ref": content_ref,
                            "reason": r.reason}, persist)
 
     async def _load_text(self, src: SourceInfo) -> str:

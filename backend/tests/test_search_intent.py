@@ -118,7 +118,7 @@ async def test_engine_priority_and_unreachable_cooldown(env, monkeypatch):
     class Down(engines.SearchEngine):
         name = "duckduckgo"
 
-        async def search(self, s, query, n, *, lang=None, recency=None):
+        async def search(self, s, query, n, *, lang=None, recency=None, via=None):
             calls.append(self.name)
             raise RuntimeError("Page.goto: net::ERR_CONNECTION_TIMED_OUT at https://duckduckgo.com/")
 
@@ -140,8 +140,9 @@ async def test_engine_priority_and_unreachable_cooldown(env, monkeypatch):
         lock = asyncio.Lock()
 
     rep = await service.browser_search(S(), [SearchQuery(query="故宫 开放时间"), SearchQuery(query="故宫 门票")])
-    assert calls == ["duckduckgo", "bing", "bing"]  # 第二个查询不再尝试已冷却的 DuckDuckGo
-    assert rep.unreachable_engines == ["duckduckgo"] and rep.per_query["故宫 门票"] == "bing"
+    # DuckDuckGo 的 HTTP 与浏览器方式各试一次；第二个查询不再尝试已冷却的 DuckDuckGo
+    assert calls == ["duckduckgo", "duckduckgo", "bing", "bing"]
+    assert rep.unreachable_engines == ["duckduckgo", "duckduckgo@browser"] and rep.per_query["故宫 门票"] == "bing"
     service.health.reset()
 
 
