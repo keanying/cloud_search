@@ -49,6 +49,7 @@ browser:
   channel: auto
   executable_path:              # 可选：指定浏览器 exe 的完整路径，填写后优先
   proxy:                        # 出网代理，例如 http://127.0.0.1:7890；留空直连
+  proxy_bypass: []              # 走代理时直连的域名，国内站点经境外代理常打不开，例：["*.baidu.com", "*.sogou.com", "*.qq.com"]
   max_contexts: 4               # 同时打开的浏览器上下文上限（每个约 150-300MB 内存）
   nav_timeout_ms: 30000
   frame_interval_s: 2.0         # 右侧阅览画面的截图间隔
@@ -59,8 +60,13 @@ browser:
 search:
   # 通用引擎顺序（可选 duckduckgo / google / bing / baidu / sogou）。默认优先 DuckDuckGo；
   # 被拦截、网络不可达或返回无关结果时自动换下一个。中国大陆网络访问 DuckDuckGo/Google 通常需要设置 browser.proxy。
-  engines: [duckduckgo, google, bing, baidu, sogou]
+  engines: [duckduckgo, ddgs, google, bing, baidu, sogou]
   strategy: priority            # priority：总是先用第一个，失败才换；rotate：每次查询轮换起始引擎分散负载
+  # DuckDuckGo 搜索方式（参考 duckduckgo-mcp-server）：auto = 先用 HTTP 接口 html.duckduckgo.com（快、不开浏览器，
+  # 被拦时用 curl_cffi 模拟 Chrome 重试），仍被拦再用浏览器打开（可请你接手验证）；http = 只用接口；browser = 只用浏览器
+  ddg_backend: auto
+  ddg_rpm: 30                   # DuckDuckGo 接口每分钟最多请求次数（过快会被限流）
+  ddgs_backends: brave, mojeek, yahoo, wikipedia   # ddgs 聚合搜索使用的引擎（不开浏览器），也可填 auto
   engine_cooldown_s: 600        # 被验证码拦截后的冷却时间（秒）
   unreachable_cooldown_s: 300   # 网络不可达后的冷却时间（秒），避免每次都等超时
   # 垂直来源：搜索规划会按意图为某些查询选择这些网站的站内搜索（无结果时回退到通用引擎）

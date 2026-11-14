@@ -388,6 +388,23 @@ class DuckDuckGoEngine(SearchEngine):
 
     async def search(self, s: CloudBrowserSession, query: str, n: int, *, lang: str | None = None,
                      recency: str | None = None) -> list[SearchHit]:
+        from ..core.config import get_settings
+        from ..core.tracelog import trace
+        from .http_engines import HttpBlocked, ddg_http_search
+
+        mode = get_settings().search_ddg_backend  # auto：先 HTTP（快、不开浏览器），被拦再用浏览器
+        if mode in ("auto", "http"):
+            try:
+                await s.set_activity(f"DuckDuckGo 搜索（HTTP）：{query}")
+                return self._hits(query, await ddg_http_search(query, n, lang=lang, recency=recency), n)
+            except HttpBlocked as e:
+                if mode == "http":
+                    raise EngineUnavailable(f"duckduckgo（HTTP）被拦截：{e}") from None
+                trace("search", f"duckduckgo HTTP 方式不可用，改用浏览器：{e}")
+        return await self._browser_search(s, query, n, lang=lang, recency=recency)
+
+    async def _browser_search(self, s: CloudBrowserSession, query: str, n: int, *, lang: str | None = None,
+                              recency: str | None = None) -> list[SearchHit]:
         await s.goto(ddg_search_url(query, lang=lang, recency=recency), activity=f"DuckDuckGo 搜索：{query}",
                      check=False)
         try:
@@ -412,5 +429,22 @@ class DuckDuckGoEngine(SearchEngine):
         return self._hits(query, rows, n)
 
 
-ENGINES: dict[str, SearchEngine] = {e.name: e for e in (DuckDuckGoEngine(), BingEngine(), BaiduEngine(),
-                                                         SogouEngine())}
+class DdgsEngine(SearchEngine):
+    """ddgs 多引擎聚合（Brave、Mojeek、Yahoo、Wikipedia 等），HTTP 方式，不开浏览器。"""
+
+    name, host = "ddgs", ""
+
+    async def search(self, s: CloudBrowserSession, query: str, n: int, *, lang: str | None = None,
+                     recency: str | None = None) -> list[SearchHit]:
+        from .http_engines import ddgs_search
+
+        await s.set_activity(f"聚合搜索（ddgs）：{query}")
+        try:
+            rows = await ddgs_search(query, n, lang=lang, recency=recency)
+        except Exception as e:  # noqa: BLE001 —— 限流/超时/网络：按不可达处理（冷却后再试）
+            raise EngineUnavailable(f"ddgs：{type(e).__name__} {str(e)[:160]}") from None
+        return self._hits(query, rows, n)
+
+
+ENGINES: dict[str, SearchEngine] = {e.name: e for e in (DuckDuckGoEngine(), DdgsEngine(), BingEngine(),
+                                                         BaiduEngine(), SogouEngine())}

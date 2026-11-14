@@ -16,7 +16,8 @@ from sqlalchemy import select
 
 from .config import get_settings
 
-ENGINE_LABELS = {"duckduckgo": "DuckDuckGo", "bing": "必应 Bing", "baidu": "百度", "sogou": "搜狗"}
+ENGINE_LABELS = {"duckduckgo": "DuckDuckGo", "ddgs": "多引擎聚合（ddgs）", "bing": "必应 Bing", "baidu": "百度",
+                 "sogou": "搜狗"}
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,8 @@ FIELDS: list[Field] = [
           "priority：按顺序优先；rotate：每个查询轮换起始引擎，分散单个引擎的压力。"),
     Field("search_vertical_sources", "可用的垂直来源", "search", "multi",
           "搜索规划智能体可以按需选用这些专门来源（百科、论文、公众号等）。全部取消则只用通用引擎。"),
+    Field("search_ddg_backend", "DuckDuckGo 搜索方式", "search", "select",
+          "auto：先用 HTTP 接口（快、不开浏览器），被拦截再用浏览器；http：只用 HTTP；browser：只用浏览器（遇到验证可请你接手）。"),
     Field("search_results_per_query", "每个查询取结果数", "search", "int",
           "每次搜索从结果页读取的条数。越多候选越全，但筛选更慢。", 3, 20),
     Field("search_engine_cooldown_s", "被拦截后冷却（秒）", "search", "int",
@@ -92,6 +95,9 @@ def options_for(f: Field) -> list[dict] | None:
         return [{"value": n, "label": engine_label(n)} for n in _engines()[0]]
     if f.key == "search_strategy":
         return [{"value": "priority", "label": "按顺序优先"}, {"value": "rotate", "label": "轮换"}]
+    if f.key == "search_ddg_backend":
+        return [{"value": "auto", "label": "自动"}, {"value": "http", "label": "仅 HTTP"},
+                {"value": "browser", "label": "仅浏览器"}]
     if f.key == "search_vertical_sources":
         return [{"value": n, "label": lab} for n, lab in _engines()[1]]
     return None

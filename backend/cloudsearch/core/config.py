@@ -174,6 +174,8 @@ class Settings(BaseSettings):
     browser_channel: str = "auto"
     browser_executable_path: str | None = None
     browser_proxy: str | None = Field(default_factory=lambda: os.environ.get("HTTPS_PROXY") or None)
+    # 走代理时这些域名直连（逗号规则同 Chrome：*.baidu.com、.qq.com、localhost 等）；国内站点经境外代理常常打不开
+    browser_proxy_bypass: list[str] = []
     browser_max_contexts: int = 4
     browser_nav_timeout_ms: int = 30000
     browser_frame_interval_s: float = 2.0
@@ -185,9 +187,13 @@ class Settings(BaseSettings):
     browser_takeover_timeout_s: int = 300
 
     # 浏览器搜索：引擎顺序与被拦截后的冷却时间
-    search_engines: list[str] = ["duckduckgo", "google", "bing", "baidu", "sogou"]
+    search_engines: list[str] = ["duckduckgo", "ddgs", "google", "bing", "baidu", "sogou"]
     # priority：总是优先第一个引擎，失败才换下一个；rotate：轮换起始引擎分散负载
     search_strategy: str = "priority"
+    # DuckDuckGo 方式：auto（先 HTTP 接口，被拦再用浏览器）/ http（只用 HTTP）/ browser（只用浏览器，可人工处理验证）
+    search_ddg_backend: str = "auto"
+    search_ddg_rpm: int = 30  # DuckDuckGo HTTP 接口每分钟最多请求次数
+    search_ddgs_backends: str = "brave, mojeek, yahoo, wikipedia"  # ddgs 聚合使用的引擎（逗号分隔，或 auto）
     search_engine_cooldown_s: int = 600
     search_unreachable_cooldown_s: int = 300
     # 可供搜索规划选用的垂直来源（None = 全部内置来源）与用户自定义来源（见 search/sources.py SourceConfig）

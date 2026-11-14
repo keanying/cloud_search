@@ -29,6 +29,10 @@ DEFAULT_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHT
               "Chrome/140.0.0.0 Safari/537.36")
 
 
+class BrowserNetworkError(Exception):
+    """导航落到浏览器错误页（网络不通、对方没有返回数据等）。"""
+
+
 class CloudBrowserSession:
     def __init__(self, browser_session_id: str, context: BrowserContext, page: Page):
         self.browser_session_id = browser_session_id
@@ -47,6 +51,16 @@ class CloudBrowserSession:
         await self.set_activity(activity)
         resp = await self.page.goto(url, wait_until=wait_until, timeout=get_settings().browser_nav_timeout_ms)
         await self.capture_frame(force=True)
+        if self.page.url.startswith("chrome-error://"):
+            # 浏览器自己的错误页（如 ERR_EMPTY_RESPONSE / ERR_CONNECTION_RESET）：按网络错误处理，而不是当作普通页面
+            try:
+                body = await self.page.evaluate("() => document.body ? document.body.innerText : ''")
+            except Exception:  # noqa: BLE001
+                body = ""
+            import re as _re
+
+            code = (_re.search(r"ERR_[A-Z_]+", body) or [None])[0] or "ERR_FAILED"
+            raise BrowserNetworkError(f"net::{code} 打开 {url} 失败（浏览器错误页）")
         return resp
 
     async def settle(self, timeout_ms: int = 4000) -> None:
@@ -120,6 +134,8 @@ class BrowserPool:
                     kwargs["slow_mo"] = s.browser_slow_mo_ms  # 调试：放慢每个动作，配合有头模式观察
                 if s.browser_proxy:
                     kwargs["proxy"] = {"server": s.browser_proxy}
+                    if s.browser_proxy_bypass:  # 这些域名直连（如国内站点不走境外代理）
+                        kwargs["proxy"]["bypass"] = ",".join(s.browser_proxy_bypass)
                 self._browser = await self._pw.chromium.launch(**kwargs)
             return self._browser
 

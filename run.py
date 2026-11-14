@@ -240,6 +240,10 @@ _CONFIG_UPGRADES = [
     (re.compile(r"^(?P<indent>[ \t]+)engines:[ \t]*\[[ \t]*bing[ \t]*,[ \t]*baidu[ \t]*,[ \t]*sogou[ \t]*\][^\n]*$", re.M),
      "{indent}engines: [duckduckgo, google, bing, baidu, sogou]  # 已自动升级（原为 [bing, baidu, sogou]）",
      "search.engines 从旧默认 [bing, baidu, sogou] 升级为 [duckduckgo, google, bing, baidu, sogou]"),
+    (re.compile(r"^(?P<indent>[ \t]+)engines:[ \t]*\[[ \t]*duckduckgo[ \t]*,[ \t]*google[ \t]*,[ \t]*bing[ \t]*,"
+                r"[ \t]*baidu[ \t]*,[ \t]*sogou[ \t]*\][^\n]*$", re.M),
+     "{indent}engines: [duckduckgo, ddgs, google, bing, baidu, sogou]  # 已自动升级：加入 ddgs 聚合搜索",
+     "search.engines 加入 ddgs（多引擎聚合，不开浏览器），排在 duckduckgo 之后"),
 ]
 
 
