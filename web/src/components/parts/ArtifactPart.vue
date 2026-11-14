@@ -47,7 +47,7 @@ function preview() {
 </script>
 
 <template>
-  <div class="card-sky p-5">
+  <div class="card-sky holo-card p-5">
     <div class="flex items-center gap-3">
       <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--cs-surface-solid)]">
         <FileSpreadsheet v-if="isTable" class="h-6 w-6 accent-ink" />

@@ -38,14 +38,14 @@ export async function loadECharts() {
   return (await import('./echarts-setup')).echarts
 }
 
-// 与界面粉彩卡片同色系（饱和一档，保证图表可读）
-const PALETTE = ['#3d8bd4', '#2bb27a', '#7b68d8', '#e0a400', '#e46a3a', '#4fb3bf', '#b35fb0', '#8a8d93']
-const PALETTE_DARK = ['#7ab4e8', '#5fcf9a', '#a596ef', '#ebc85a', '#f19a7c', '#7fd0da', '#d39ad0', '#b0b2b8']
+// 与界面同色系：靛紫为主，青、粉、薄荷、琥珀为辅（幻彩）
+const PALETTE = ['#5b5cf6', '#38bdf8', '#f0577a', '#22b07d', '#f5a524', '#a78bfa', '#ec4899', '#8a8eaa']
+const PALETTE_DARK = ['#8385ff', '#7dd3fc', '#ff8fa6', '#5fdba8', '#fbc65a', '#c4b5fd', '#f9a8d4', '#a3a7c2']
 
 export function buildOption(spec: ChartSpec, dark: boolean) {
-  const text = dark ? '#dcdcd6' : '#303236'
-  const muted = dark ? '#8a8a85' : '#8a8c92'
-  const line = dark ? 'rgba(255,255,255,.08)' : 'rgba(17,18,20,.08)'
+  const text = dark ? '#d2d5e6' : '#33364d'
+  const muted = dark ? '#7d81a0' : '#8a8eaa'
+  const line = dark ? 'rgba(255,255,255,.08)' : 'rgba(30,35,80,.08)'
   const unit = spec.unit ? ` ${spec.unit}` : ''
   const fmt = (v: unknown) => (v == null ? '无数据' : `${typeof v === 'number' ? v.toLocaleString('zh-CN') : v}${unit}`)
   const base = {
@@ -61,7 +61,7 @@ export function buildOption(spec: ChartSpec, dark: boolean) {
     return {
       ...base,
       series: [{
-        type: 'pie', radius: ['38%', '66%'], center: ['50%', '52%'], itemStyle: { borderRadius: 6, borderColor: dark ? '#1f1f22' : '#fff', borderWidth: 2 },
+        type: 'pie', radius: ['38%', '66%'], center: ['50%', '52%'], itemStyle: { borderRadius: 6, borderColor: dark ? '#171828' : '#fff', borderWidth: 2 },
         label: { color: text, formatter: '{b}\n{d}%' },
         data: spec.categories.map((c, i) => ({ name: c, value: s.values[i] })),
       }],
@@ -75,6 +75,7 @@ export function buildOption(spec: ChartSpec, dark: boolean) {
     series: spec.series.map((s) => ({
       name: s.name, type: spec.type, data: s.values, smooth: spec.type === 'line', barMaxWidth: 36,
       itemStyle: spec.type === 'bar' ? { borderRadius: [10, 10, 0, 0] } : undefined,
+      symbol: 'circle', symbolSize: 7, lineStyle: spec.type === 'line' ? { width: 2.5 } : undefined,
       connectNulls: false,
     })),
   }

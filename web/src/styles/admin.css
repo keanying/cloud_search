@@ -1,49 +1,45 @@
 /*
  * 管理后台（控制台）样式层：只在 <html class="admin-mode"> 时生效，不影响用户端。
- * 目标：克制、紧凑、专业 —— 14px 基准字号、12px 面板圆角、8px 控件圆角、细描边、极少阴影；
- * 粉彩只用于小面积的状态与标签，不做大面积卡片底色。
+ * 目标：紧凑、专业的磨砂玻璃控制台 —— 14px 基准字号、22px 玻璃面板、胶囊形按钮与筛选、
+ * 靛紫主色只用于选中与主操作；粉彩用于状态与标签。
  * 这里是未分层（unlayered）的样式，会覆盖 Tailwind 的 @utility（位于 utilities 层）。
  */
 
 html.admin-mode {
-  --ac-radius: 12px;
-  --ac-radius-sm: 8px;
-  --ac-side: #111214;
-  --ac-side-text: rgb(244 244 240 / 0.62);
-  --ac-side-hover: rgb(255 255 255 / 0.06);
-  --ac-side-active: rgb(255 255 255 / 0.1);
+  --ac-radius: 22px;
+  --ac-radius-sm: 999px;
+  --ac-radius-input: 14px;
   --ac-head: var(--color-slate-400);
-}
-html.admin-mode.dark {
-  --ac-side: #0f0f11;
 }
 
 html.admin-mode body {
   font-size: 14px;
 }
 
-/* 面板：白底、细描边、12px 圆角、无阴影 */
+/* 面板：磨砂玻璃、白色高光描边、柔和投影 */
 html.admin-mode .surface {
   border-radius: var(--ac-radius);
-  box-shadow: none;
 }
 html.admin-mode .ac-panel {
-  border: 1px solid var(--cs-line);
+  border: 1px solid var(--cs-rim);
   border-radius: var(--ac-radius);
-  background: var(--cs-surface-solid);
+  background: var(--cs-surface);
+  box-shadow: var(--cs-shadow);
+  backdrop-filter: var(--cs-blur);
+  -webkit-backdrop-filter: var(--cs-blur);
 }
 html.admin-mode .ac-panel-head {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  min-height: 48px;
-  padding: 0.65rem 1rem;
+  min-height: 52px;
+  padding: 0.7rem 1.15rem;
   border-bottom: 1px solid var(--cs-line);
 }
 html.admin-mode .ac-panel-title {
   flex-shrink: 0;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
   color: var(--color-white);
 }
 html.admin-mode .ac-panel-sub {
@@ -62,16 +58,16 @@ html.admin-mode .ac-caps {
   color: var(--ac-head);
 }
 
-/* 按钮与控件：8px 圆角、紧凑高度 */
+/* 按钮与控件：胶囊形、紧凑高度 */
 html.admin-mode .btn,
 html.admin-mode .btn-primary,
 html.admin-mode .btn-secondary,
 html.admin-mode .btn-ghost,
 html.admin-mode .btn-danger {
   border-radius: var(--ac-radius-sm);
-  padding: 0.4rem 0.8rem;
+  padding: 0.4rem 0.95rem;
   font-size: 13px;
-  min-height: 32px;
+  min-height: 34px;
 }
 html.admin-mode .btn,
 html.admin-mode .btn-primary,
@@ -96,7 +92,7 @@ html.admin-mode .round-btn-light {
   width: 32px;
 }
 html.admin-mode .input {
-  border-radius: var(--ac-radius-sm);
+  border-radius: var(--ac-radius-input);
   padding: 0.42rem 0.7rem;
   font-size: 13px;
 }
@@ -104,11 +100,11 @@ html.admin-mode select.input {
   padding-right: 1.8rem;
 }
 html.admin-mode .chip {
-  border-radius: var(--ac-radius-sm);
+  border-radius: 999px;
   font-size: 12px;
 }
 html.admin-mode .popover-menu {
-  border-radius: var(--ac-radius);
+  border-radius: 18px;
 }
 html.admin-mode .label {
   font-size: 12px;
@@ -132,13 +128,13 @@ html.admin-mode .dt-table thead th {
   font-size: 12px;
 }
 html.admin-mode .dt-row.dt-row-on td {
-  background-color: color-mix(in srgb, var(--pastel-mint) 45%, var(--cs-surface-solid));
+  background-color: color-mix(in srgb, var(--cs-ink) 9%, transparent);
 }
 html.admin-mode .dt-page {
-  border-radius: 6px;
+  border-radius: 999px;
 }
 html.admin-mode .dt-size {
-  border-radius: 6px;
+  border-radius: 999px;
 }
 
 /* 键盘提示 */
@@ -181,7 +177,7 @@ html.admin-mode .dt-size {
   word-break: break-word;
   max-height: 320px;
   overflow: auto;
-  border-radius: 8px;
+  border-radius: 14px;
   border: 1px solid var(--cs-line);
   background: var(--cs-code-bg);
   padding: 0.7rem 0.85rem;

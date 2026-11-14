@@ -78,8 +78,8 @@ function pick(v: string) {
   align-items: center;
   gap: 0.35rem;
   height: 32px;
-  padding: 0 0.7rem;
-  border-radius: 8px;
+  padding: 0 0.85rem;
+  border-radius: 999px;
   border: 1px dashed var(--cs-line-strong);
   background: var(--cs-surface-solid);
   font-size: 12px;

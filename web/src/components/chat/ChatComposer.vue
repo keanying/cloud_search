@@ -245,8 +245,10 @@ const MODE_BUTTONS = [...MODE_OPTIONS.filter((m) => m.value !== 'auto'), ...MODE
 <style scoped>
 .composer-float {
   background-color: var(--cs-surface-solid);
-  border-color: var(--cs-line);
-  box-shadow: 0 2px 6px rgba(17, 18, 20, 0.04), 0 18px 40px -22px rgba(17, 18, 20, 0.28);
+  border-color: var(--cs-rim);
+  box-shadow: var(--cs-shadow-lg);
+  backdrop-filter: var(--cs-blur);
+  -webkit-backdrop-filter: var(--cs-blur);
 }
 .attach-btn {
   display: inline-flex;
