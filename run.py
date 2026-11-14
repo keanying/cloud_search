@@ -509,6 +509,7 @@ def ensure_ollama(cfg: dict) -> subprocess.Popen | None:
         if IS_WIN:
             kw["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
         started = subprocess.Popen([exe, "serve"], **kw)
+        bind_to_launcher(started)
         for _ in range(30):
             time.sleep(1)
             tags = _ollama_tags(url)
@@ -531,8 +532,144 @@ def ensure_ollama(cfg: dict) -> subprocess.Popen | None:
     return started
 
 
-def start_mineru(cfg: dict) -> subprocess.Popen | None:
-    """启动本机 MinerU 服务（离线模型），等待端口就绪。失败时不阻止主程序启动（文字版文档仍可内置解析）。"""
+# ------------------------------------------------------------------ 子进程随启动器退出
+_JOB = None  # Windows Job Object：启动器退出（包括被 PyCharm 停止/强制结束）时系统自动结束其中的进程
+
+
+def bind_to_launcher(p: subprocess.Popen) -> None:
+    """让子进程（及其后代）随启动器一起退出，避免残留进程继续占用端口。失败时忽略。"""
+    global _JOB
+    if not IS_WIN or p is None:
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.CreateJobObjectW.restype = wintypes.HANDLE
+        k32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+        k32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+        k32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+        if _JOB is None:
+            class BASIC(ctypes.Structure):
+                _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
+                            ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                            ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
+                            ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD),
+                            ("SchedulingClass", wintypes.DWORD)]
+
+            class IO(ctypes.Structure):
+                _fields_ = [(n, ctypes.c_uint64) for n in ("r", "w", "o", "rb", "wb", "ob")]
+
+            class EXT(ctypes.Structure):
+                _fields_ = [("Basic", BASIC), ("Io", IO), ("ProcessMemoryLimit", ctypes.c_size_t),
+                            ("JobMemoryLimit", ctypes.c_size_t), ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                            ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+            job = k32.CreateJobObjectW(None, None)
+            if not job:
+                return
+            ext = EXT()
+            ext.Basic.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            if not k32.SetInformationJobObject(job, 9, ctypes.byref(ext), ctypes.sizeof(ext)):  # Extended limit
+                return
+            _JOB = job
+        k32.AssignProcessToJobObject(_JOB, int(p._handle))  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001, S110 —— 只是防残留的保险，失败不影响启动
+        pass
+
+
+def _posix_die_with_parent() -> None:
+    """Linux：父进程（启动器）退出时子进程收到 SIGTERM。"""
+    try:
+        import ctypes
+
+        ctypes.CDLL("libc.so.6", use_errno=True).prctl(1, signal.SIGTERM)  # PR_SET_PDEATHSIG
+    except Exception:  # noqa: BLE001, S110
+        pass
+
+
+def list_processes() -> list[tuple[int, str]]:
+    """[(PID, 命令行)]。用于找出上次残留的 MinerU。"""
+    out: list[tuple[int, str]] = []
+    try:
+        if IS_WIN:
+            ps = ("[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-CimInstance Win32_Process | "
+                  "Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress")
+            raw = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+                                 check=False, capture_output=True, timeout=60).stdout.decode("utf-8", "replace")
+            rows = json.loads(raw or "[]")
+            for r in rows if isinstance(rows, list) else [rows]:
+                out.append((int(r.get("ProcessId") or 0), r.get("CommandLine") or ""))
+        else:
+            raw = subprocess.run(["ps", "-eo", "pid=,args="], check=False, capture_output=True, timeout=30).stdout
+            for line in raw.decode("utf-8", "replace").splitlines():
+                pid, _, cmd = line.strip().partition(" ")
+                if pid.isdigit():
+                    out.append((int(pid), cmd))
+    except Exception:  # noqa: BLE001, S110
+        pass
+    return out
+
+
+def port_owner(port: int) -> int | None:
+    """监听该端口的进程 PID（找不到时返回 None）。"""
+    try:
+        if IS_WIN:
+            raw = subprocess.run(["netstat", "-ano", "-p", "TCP"], check=False, capture_output=True, timeout=30).stdout
+            for line in raw.decode("gbk", "replace").splitlines():
+                cols = line.split()
+                if len(cols) >= 5 and cols[1].endswith(f":{port}") and cols[3].upper() == "LISTENING":
+                    return int(cols[4])
+        else:
+            lsof = shutil.which("lsof")
+            if lsof:
+                raw = subprocess.run([lsof, "-t", f"-iTCP:{port}", "-sTCP:LISTEN"], check=False, capture_output=True, timeout=30)
+                pids = raw.stdout.decode().split()
+                return int(pids[0]) if pids else None
+    except Exception:  # noqa: BLE001, S110
+        pass
+    return None
+
+
+def kill_pid_tree(pid: int) -> None:
+    if IS_WIN:
+        subprocess.call(["taskkill", "/T", "/F", "/PID", str(pid)], stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL)
+    else:
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.kill(pid, sig)
+            except OSError:
+                return
+            time.sleep(2)
+
+
+def stop_stale_mineru(port: int) -> bool:
+    """结束上次残留的本项目 MinerU（命令行里有 .venv-mineru 路径），等待端口释放。返回端口是否已空出。"""
+    me = os.getpid()
+    venv = str(MINERU_VENV).replace("\\", "/").lower()
+    owner = port_owner(port)
+    victims = []
+    for pid, cmd in list_processes():
+        c = cmd.replace("\\", "/").lower()
+        if pid != me and (venv in c or (pid == owner and "mineru" in c)):
+            victims.append((pid, cmd))
+    if not victims:
+        return port_free("127.0.0.1", port)
+    info(f"结束上次残留的 MinerU 进程：{', '.join(str(p) for p, _ in victims)}")
+    for pid, _ in victims:
+        kill_pid_tree(pid)
+    for _ in range(30):
+        if port_free("127.0.0.1", port):
+            return True
+        time.sleep(1)
+    return False
+
+
+def start_mineru(cfg: dict, *, restart: bool = True) -> subprocess.Popen | None:
+    """启动本机 MinerU 服务（离线模型），等待端口就绪。失败时不阻止主程序启动（文字版文档仍可内置解析）。
+    restart=True（默认）：上次残留的 MinerU 先结束再重新启动，保证用的是当前配置与模型。"""
     if not cfg.get("mineru_local"):
         return None
     if not MINERU_KIT.exists():
@@ -540,18 +677,29 @@ def start_mineru(cfg: dict) -> subprocess.Popen | None:
         return None
     port = int(cfg.get("mineru_port") or 8002)
     if not port_free("127.0.0.1", port):
-        info(f"端口 {port} 已被占用，假定 MinerU 已在运行")
-        return None
+        if not restart:
+            info(f"端口 {port} 已被占用，沿用正在运行的 MinerU（--keep-mineru）")
+            return None
+        step(f"重启 MinerU（端口 {port} 被占用）")
+        if not stop_stale_mineru(port):
+            owner = port_owner(port)
+            cmd = next((c for p, c in list_processes() if p == owner), "") if owner else ""
+            info(f"端口 {port} 被其他程序占用（PID {owner or '未知'}{'：' + cmd[:120] if cmd else ''}），"
+                 "不是本项目的 MinerU，未结束它。请关闭该程序，或在 config.yaml 修改 mineru.local_port")
+            info("本次不启动 MinerU：扫描件/图片/PPT 将无法识别")
+            return None
     MINERU_HOME.mkdir(parents=True, exist_ok=True)
     log = open(MINERU_HOME / "server.log", "ab")  # noqa: SIM115 —— 随进程生命周期
     kw: dict = {"cwd": str(ROOT), "env": {**os.environ, **mineru_env(offline=True)}, "stdout": log, "stderr": log}
     if IS_WIN:
         kw["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+    elif sys.platform.startswith("linux"):
+        kw["preexec_fn"] = _posix_die_with_parent
     tier = cfg.get("mineru_tier") or "standard"
     p = subprocess.Popen([str(MINERU_KIT), "api-server", "--host", "127.0.0.1", "--port", str(port),
                           "--tier", tier], **kw)
+    bind_to_launcher(p)
     step(f"启动 MinerU（127.0.0.1:{port}，{tier}，离线模型；日志 .mineru/server.log）")
-    import socket
 
     for _ in range(600):
         if p.poll() is not None:
@@ -634,6 +782,8 @@ def serve(cfg: dict, args: argparse.Namespace, pm: list[str] | None,
     if args.dev and pm:
         procs.append(subprocess.Popen(pm + ["run", "dev", "--port", "5173"], cwd=str(WEB),
                                       env={**env, "CS_API_PORT": str(port)}))
+    for p in procs:
+        bind_to_launcher(p)  # 启动器被强制结束（如 PyCharm 停止按钮）时一并结束，不残留占用端口
     local = f"http://127.0.0.1:{port}"
     step("启动服务")
     debugging = "pydevd" in sys.modules
@@ -682,6 +832,7 @@ def main() -> None:
     ap.add_argument("--rebuild", action="store_true", help="强制重新安装依赖并打包")
     ap.add_argument("--no-browser", action="store_true", help="不自动打开浏览器")
     ap.add_argument("--check-search", action="store_true", help="诊断各搜索引擎在本机网络下是否可用")
+    ap.add_argument("--keep-mineru", action="store_true", help="MinerU 已在运行时沿用，不重启（默认每次启动都重启）")
     ap.add_argument("--host")
     ap.add_argument("--port", type=int)
     args = ap.parse_args()
@@ -716,7 +867,7 @@ def main() -> None:
             ollama_p.terminate()
         step("准备完成")
         return
-    mineru_p = start_mineru(cfg)
+    mineru_p = start_mineru(cfg, restart=not args.keep_mineru)
     serve(cfg, args, pm, extra=[ollama_p, mineru_p])
 
 
