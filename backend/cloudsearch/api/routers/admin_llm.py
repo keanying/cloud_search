@@ -235,3 +235,17 @@ async def put_binding(role: str, body: AgentBindingIn, _: CurrentUser = Depends(
     return AgentBindingOut(agent_role=role, role_label=label, description=desc, model_profile_id=b.model_profile_id,
                            fallback_profile_ids=b.fallback_profile_ids, temperature=b.temperature,
                            max_tokens=b.max_tokens)
+
+
+@router.delete("/agent-bindings/{role}", status_code=204)
+async def delete_binding(role: str, _: CurrentUser = Depends(admin_user), s: AsyncSession = Depends(get_session)):
+    """取消某个角色的单独绑定，改用默认模型（默认模型本身不能取消）。"""
+    if role not in ROLE_INFO:
+        raise HTTPException(404, "未知角色")
+    if role == "default":
+        raise HTTPException(400, "默认模型不能取消，请改选其他模型")
+    b = await s.get(AgentModelBinding, role)
+    if b is not None:
+        await s.delete(b)
+        await s.commit()
+    return Response(status_code=204)

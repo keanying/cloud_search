@@ -57,12 +57,16 @@ const dirtyRoles = computed(() => store.bindings.filter(isDirty).map((b) => b.ag
 
 async function saveRole(role: string, quiet = false): Promise<boolean> {
   const d = drafts[role]
-  if (!d.model_profile_id) {
+  if (!d.model_profile_id && role === 'default') {
     if (!quiet) toast.push('请选择主模型', 'error')
     return false
   }
   saving.value[role] = true
   try {
+    if (!d.model_profile_id) {
+      await api.deleteAgentBinding(role) // 改用默认模型
+      return true
+    }
     await api.putAgentBinding(role, {
       model_profile_id: d.model_profile_id,
       fallback_profile_ids: d.fallback_profile_ids.filter((x) => x !== d.model_profile_id),
@@ -109,7 +113,7 @@ const columns: Column[] = [
   { key: 'fallbacks', title: '备用模型', minWidth: 240 },
   { key: 'temperature', title: '温度', width: 110 },
   { key: 'max_tokens', title: '最大输出', width: 130 },
-  { key: 'actions', title: '', width: 150, align: 'right', fixed: 'right' },
+  { key: 'actions', title: '', width: 210, align: 'right', fixed: 'right' },
 ]
 </script>
 
@@ -191,10 +195,10 @@ const columns: Column[] = [
         />
       </template>
       <template #cell-actions="{ row }">
-        <span class="inline-flex items-center gap-2">
+        <span class="inline-flex items-center gap-2 whitespace-nowrap">
           <StatusPill v-if="isDirty(row)" tone="butter" text="未保存" />
           <StatusPill v-else-if="!row.model_profile_id" tone="gray" :text="row.agent_role === 'default' ? '未设置' : '用默认'" />
-          <button class="btn-primary btn-sm" :disabled="!isDirty(row) || saving[row.agent_role]" @click="save(row.agent_role)">
+          <button class="btn-primary btn-sm shrink-0 whitespace-nowrap" :disabled="!isDirty(row) || saving[row.agent_role]" @click="save(row.agent_role)">
             <Loader2 v-if="saving[row.agent_role]" class="h-3.5 w-3.5 animate-spin" /> 保存
           </button>
         </span>

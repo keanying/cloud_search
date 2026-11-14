@@ -20,7 +20,7 @@ const desc = computed(() => props.desc ?? found.value?.item.desc ?? '')
 <template>
   <div class="mx-auto w-full max-w-[1680px] px-4 pt-5 pb-16 sm:px-6 lg:px-10 lg:pt-8">
     <header class="mb-6 flex flex-wrap items-end gap-x-6 gap-y-4">
-      <div class="min-w-0 flex-1">
+      <div class="min-w-[min(100%,22rem)] flex-1">
         <div class="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-slate-400">
           <span>管理后台</span>
           <template v-if="found?.group"><span aria-hidden="true">/</span><span>{{ found.group }}</span></template>

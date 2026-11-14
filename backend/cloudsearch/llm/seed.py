@@ -74,10 +74,30 @@ def load_llm_config() -> LlmCfg | None:
         raise ConfigError(f"config.yaml 的 llm 分区有误：{e}") from e
 
 
-async def sync_llm_config(s: AsyncSession) -> dict[str, int]:
+SYNC_HASH_KEY = "_llm_config_hash"
+
+
+async def sync_llm_config(s: AsyncSession, *, force: bool = False) -> dict[str, int]:
+    """把 config.yaml 的 llm 分区同步进数据库。
+
+    只在该分区内容变化后（或首次）同步：之后在管理后台做的修改不会在每次重启时被配置文件覆盖；
+    修改 config.yaml 的 llm 分区后重启，则以配置文件为准重新同步。"""
+    import hashlib
+    import json
+
+    from ..db.models import SystemSetting
+
     cfg = load_llm_config()
     if cfg is None:
         return {}
+    digest = hashlib.sha256(json.dumps(cfg.model_dump(mode="json"), sort_keys=True).encode()).hexdigest()
+    mark = await s.get(SystemSetting, SYNC_HASH_KEY)
+    if not force and mark is not None and mark.setting_value == digest:
+        return {"skipped": 1}
+    if mark is None:
+        s.add(SystemSetting(setting_key=SYNC_HASH_KEY, setting_value=digest))
+    else:
+        mark.setting_value = digest
     stats = {"providers": 0, "models": 0, "bindings": 0}
     ref_to_id: dict[str, str] = {}
     for pc in cfg.providers:

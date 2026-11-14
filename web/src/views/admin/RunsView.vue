@@ -26,7 +26,11 @@ const ROLES = [
 const STATUS = computed(() =>
   Object.entries(RUN_STATUS)
     .filter(([k]) => k !== 'running')
-    .map(([value, v]) => ({ value, label: v.label, dot: `var(--pastel-${v.tone}-dot)` })),
+    .map(([value, v]) => ({
+      value,
+      label: v.label,
+      dot: v.tone === 'gray' ? 'var(--color-slate-500)' : `var(--pastel-${v.tone}-dot)`,
+    })),
 )
 
 const t = useServerTable<AdminAgentRun, { q: string; role: string; status: string }>(

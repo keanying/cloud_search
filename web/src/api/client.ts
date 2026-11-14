@@ -217,6 +217,8 @@ export const api = {
   agentBindings: () => get<AgentBindingOut[]>('/admin/llm/agent-bindings'),
   putAgentBinding: (role: string, b: AgentBindingIn) =>
     put<AgentBindingOut>(`/admin/llm/agent-bindings/${enc(role)}`, b),
+  /** 取消单独绑定，改用默认模型 */
+  deleteAgentBinding: (role: string) => del<void>(`/admin/llm/agent-bindings/${enc(role)}`),
 
   // 管理后台：概览、记录、用户、运行参数
   adminOverview: (days = 14) => get<AdminOverview>(`/admin/overview?days=${days}`),

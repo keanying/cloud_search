@@ -85,3 +85,33 @@ llm:
     async with session_scope() as s:
         assert (await s.execute(select(func.count()).select_from(LlmProvider))).scalar_one() == 1
         assert (await s.execute(select(func.count()).select_from(LlmModel))).scalar_one() == 2
+    # 管理后台修改后重启：config.yaml 的 llm 分区未变 → 不覆盖后台修改；分区变化后才重新同步
+    from cloudsearch.db.models import AgentModelBinding
+
+    async with session_scope() as s:
+        await s.delete(await s.get(AgentModelBinding, "extractor"))  # 后台“改用默认模型”
+    await sync_config_to_db()
+    async with session_scope() as s:
+        assert await s.get(AgentModelBinding, "extractor") is None
+    cfg = (tmp_path / "config.yaml").read_text(encoding="utf-8").replace("temperature: 0}", "temperature: 0.2}")
+    (tmp_path / "config.yaml").write_text(cfg, encoding="utf-8")
+    await sync_config_to_db()
+    async with session_scope() as s:
+        assert (await s.get(AgentModelBinding, "extractor")).temperature == 0.2
+
+
+async def test_delete_agent_binding_falls_back_to_default(client, env):
+    from conftest import register
+
+    h = await register(client)
+    p = (await client.post("/api/v1/admin/llm/providers", headers=h, json={
+        "provider_name": "DeepSeek", "provider_type": "deepseek", "base_url": "https://api.deepseek.com/",
+        "api_key": "sk-abcdefghijklmnop"})).json()
+    m = (await client.post("/api/v1/admin/llm/models", headers=h, json={
+        "provider_id": p["provider_id"], "model_name": "deepseek-chat"})).json()
+    await client.put("/api/v1/admin/llm/agent-bindings/extractor", headers=h, json={"model_profile_id": m["model_profile_id"]})
+    assert (await client.delete("/api/v1/admin/llm/agent-bindings/extractor", headers=h)).status_code == 204
+    b = next(x for x in (await client.get("/api/v1/admin/llm/agent-bindings", headers=h)).json()
+             if x["agent_role"] == "extractor")
+    assert b["model_profile_id"] is None
+    assert (await client.delete("/api/v1/admin/llm/agent-bindings/default", headers=h)).status_code == 400

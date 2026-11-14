@@ -17,11 +17,11 @@ watch(defaultMode, (v) => localStorage.setItem(PREF_KEY, v))
 
 <template>
   <div class="h-full overflow-y-auto">
-    <div class="mx-auto max-w-3xl px-4 pt-6 pb-12 md:px-6">
+    <div class="mx-auto w-full max-w-[1440px] px-4 pt-6 pb-12 md:px-6 xl:px-10">
       <PageHeader title="设置" desc="账号信息与本浏览器的使用偏好。" :parent="{ name: 'home' }" />
 
-      <div class="grid gap-4 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-        <section class="card-lilac p-6">
+      <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(300px,0.85fr)_minmax(0,1fr)_minmax(0,1fr)]">
+        <section class="card-lilac p-6 md:row-span-2 xl:row-span-1">
           <div class="flex items-center gap-3">
             <span class="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--cs-surface-solid)] text-xl font-bold accent-ink">
               {{ (auth.displayName || 'U').slice(0, 1).toUpperCase() }}
@@ -69,8 +69,12 @@ watch(defaultMode, (v) => localStorage.setItem(PREF_KEY, v))
             </button>
           </div>
 
-          <div class="hairline mt-5 border-t pt-5">
-            <div class="mb-2 text-sm font-semibold text-white">外观</div>
+        </section>
+
+        <section class="surface p-6">
+          <h2 class="card-title">外观</h2>
+          <div class="mt-4">
+            <div class="mb-2 text-xs font-semibold text-slate-400">主题</div>
             <div class="flex flex-wrap gap-2">
               <button class="chip" :class="prefs.theme === 'light' ? 'chip-active' : ''" @click="prefs.setTheme('light')">☀️ 浅色</button>
               <button class="chip" :class="prefs.theme === 'dark' ? 'chip-active' : ''" @click="prefs.setTheme('dark')">🌙 深色</button>
@@ -90,7 +94,7 @@ watch(defaultMode, (v) => localStorage.setItem(PREF_KEY, v))
           </div>
         </section>
 
-        <section class="card-butter p-6 md:col-span-2">
+        <section class="card-butter p-6 md:col-span-2 xl:col-span-3">
           <div class="flex flex-wrap items-center gap-4">
             <span class="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--cs-surface-solid)] text-xl" aria-hidden="true">🔑</span>
             <div class="min-w-0 flex-1">

@@ -7,7 +7,7 @@
  * - 排序：v-model:sort；serverSort=true 时只发出排序变化，由父组件重新取数
  * - 固定列：列上 fixed: 'left' | 'right'，需要给出数值 width
  */
-import { computed, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, ChevronsUpDown, Inbox, Rows3, Rows4 } from 'lucide-vue-next'
 
 export interface Column {
@@ -76,6 +76,20 @@ function onScroll() {
   scrolledLeft.value = el.scrollLeft > 2
   scrolledRight.value = el.scrollLeft + el.clientWidth >= el.scrollWidth - 2
 }
+
+let ro: ResizeObserver | null = null
+onMounted(() => {
+  onScroll()
+  if (scroller.value && 'ResizeObserver' in window) {
+    ro = new ResizeObserver(onScroll)
+    ro.observe(scroller.value)
+  }
+})
+onBeforeUnmount(() => ro?.disconnect())
+watch(
+  () => props.rows,
+  () => void nextTick(onScroll),
+)
 
 const keyOf = (row: T, i: number): string =>
   typeof props.rowKey === 'function' ? props.rowKey(row) : String((row as Record<string, unknown>)[props.rowKey as string] ?? i)

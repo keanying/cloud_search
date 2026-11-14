@@ -66,18 +66,18 @@ async function runDiagnose() {
 const okCount = computed(() => results.value.filter((r) => r.status === 'ok').length)
 
 const columns: Column[] = [
-  { key: 'label', title: '引擎 / 来源', width: 200 },
-  { key: 'status', title: '结果', width: 140 },
-  { key: 'count', title: '结果数', width: 90, align: 'right' },
-  { key: 'seconds', title: '耗时', width: 90, align: 'right' },
-  { key: 'detail', title: '说明', minWidth: 260 },
+  { key: 'label', title: '引擎 / 来源', width: 160 },
+  { key: 'status', title: '结果', width: 120 },
+  { key: 'count', title: '条数', width: 64, align: 'right' },
+  { key: 'seconds', title: '耗时', width: 72, align: 'right' },
+  { key: 'detail', title: '说明', minWidth: 200 },
 ]
 </script>
 
 <template>
   <AdminPage>
     <div v-if="s.loading.value && !s.data.value" class="flex items-center gap-2 text-sm text-slate-400"><Loader2 class="h-4 w-4 animate-spin" /> 加载中…</div>
-    <div v-else class="grid items-start gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+    <div v-else class="grid grid-cols-[minmax(0,1fr)] items-start gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
       <div class="space-y-5">
         <section class="surface p-5 lg:p-6">
           <h2 class="card-title mb-1"><Globe class="h-4.5 w-4.5" /> 搜索</h2>
