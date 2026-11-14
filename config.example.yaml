@@ -110,7 +110,8 @@ files:
 # 2) mineru.net 云端精准解析：在 mineru.net 申请 API Token 填到 cloud_token（单文件 ≤200MB/200 页；文件会发送到 mineru.net）。
 # 3) 本机命令行：本机已安装 MinerU 时，按 cli_command 调用（{input}/{output}/{output_dir} 会被替换）。
 mineru:
-  local: false                  # true = 本机托管 MinerU（见上方说明 0）
+  local: false                  # true = 本机托管 MinerU（见上方说明 0）；开启后文件只在本机解析，绝不发往 mineru.net
+                                #   （与大模型无关：大模型仍可用 DeepSeek 等厂商，见 privacy 分区说明）
   local_port: 8002              # 本机 MinerU 端口（只监听 127.0.0.1；不要与 server.port 相同）
   model_source: modelscope      # 首次下载模型的来源：modelscope（国内快）/ huggingface（失败会自动换另一个）
   extras: ""                    # 空 = 基础版（CPU/核显即可）；torch 或 full = NVIDIA 显卡加速（下载更大）

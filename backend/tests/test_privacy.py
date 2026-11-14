@@ -49,7 +49,7 @@ async def test_cloud_parsers_disabled(env, monkeypatch):
     assert "mineru_cloud" in parsers.candidates("pdf")
     monkeypatch.setattr(s, "privacy_data_local_only", True)
     assert parsers.candidates("pdf") == ["builtin"]
-    with pytest.raises(parsers.ParseError, match="数据不出域"):
+    with pytest.raises(parsers.ParseError, match="只在本机解析"):
         parsers.candidates("png")
     monkeypatch.setattr(s, "mineru_local", True)  # 本机托管 MinerU：自动使用 127.0.0.1:8002
     assert parsers.candidates("png") == ["mineru_api"] and parsers.api_url() == "http://127.0.0.1:8002"
@@ -94,3 +94,18 @@ async def test_ollama_models_registered(env, monkeypatch):
         b = await s.get(AgentModelBinding, "default")
         m = await s.get(LlmModel, b.model_profile_id)
         assert m.model_name == "qwen3:8b"
+
+
+async def test_local_mineru_never_uses_cloud(env, monkeypatch):
+    """mineru.local=true（大模型可用 DeepSeek 等公网厂商）：文件只在本机解析，误配云端 Token 也不会上传。"""
+    from cloudsearch.core.config import get_settings
+    from cloudsearch.files import parsers
+
+    s = get_settings()
+    monkeypatch.setattr(s, "mineru_local", True)
+    monkeypatch.setattr(s, "mineru_cloud_token", "tok")
+    assert parsers.candidates("pdf") == ["mineru_api", "builtin"]
+    assert parsers.candidates("png") == ["mineru_api"]
+    monkeypatch.setattr(s, "files_parser", "mineru_cloud")
+    assert "mineru_cloud" not in parsers.candidates("pdf")
+    assert not s.privacy_data_local_only  # 不影响大模型：公网厂商照常可用

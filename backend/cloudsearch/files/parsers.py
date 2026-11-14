@@ -480,10 +480,14 @@ def candidates(ext: str) -> list[str]:
             order.append("mineru_cli")
     from ..core import privacy
 
-    if privacy.enabled():  # 数据不出域：不把文件发到 mineru.net
+    # 本机托管 MinerU 或数据不出域：文件绝不发往 mineru.net（即使误配了云端 Token 或 files.parser）
+    if s.mineru_local and choice in EXTERNAL_PARSERS:
+        order = ["mineru_api"]
+    if privacy.enabled() or s.mineru_local:
         order = [p for p in order if p not in EXTERNAL_PARSERS] or (["builtin"] if builtin_ok else [])
         if not order:
-            raise ParseError("数据不出域模式下不能使用 MinerU 云端；请配置自部署 MinerU（mineru.local 或 mineru.api_url）")
+            raise ParseError("文件只在本机解析（不使用 MinerU 云端）；请确认本机 MinerU 已启动（mineru.local）"
+                             "或配置自部署 MinerU（mineru.api_url）")
     if builtin_ok and "builtin" not in order:
         order.append("builtin")  # MinerU 不可用时的兜底
     return order or ["builtin"]
