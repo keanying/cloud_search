@@ -156,3 +156,14 @@ async def test_report_streams_live_draft_and_records_timing(client, fake_llm, fa
     assert m["elapsed_ms"] >= 500 and m["finished_ms"] and m["llm_requests"] >= 4
     write = next(st for st in progress["stages"] if st["key"] == "write")
     assert write["elapsed_ms"] >= 500  # 流式撰写约若干个 0.25s 片段
+
+
+async def test_streamed_writer_retries_after_invalid_output(client, fake_llm, fake_browser):
+    """流式撰写时第一次输出校验失败：自动重试并完成（此前 run_stream 不支持重试，任务会失败）。"""
+    fake_llm.stream_writer = True
+    fake_llm.writer_invalid_first = True
+    h = await register(client)
+    task, msg = await _run(client, h, fake_llm, quick_task_output(), "故宫什么时候开放？")
+    assert task["task_status"] == "completed", task
+    assert fake_llm.calls["report_writer"] == 2
+    assert any(p["part_id"].startswith("answer-") for p in msg["parts"])

@@ -86,7 +86,8 @@ class FakeLLM:
     coverage_outputs: list[dict] = field(default_factory=list)  # coordinator 覆盖评估，按顺序弹出
     writer_extra: dict = field(default_factory=dict)
     extract_two: bool = False  # 额外抽取第二句（含票价数字）
-    stream_writer: bool = False  # report_writer 以流式返回（测试实时撰写显示）  # 合并进 report_writer 输出（highlights/follow_ups 等）
+    stream_writer: bool = False  # report_writer 以流式返回（测试实时撰写显示）
+    writer_invalid_first: bool = False  # 流式时第一次输出不合法（测试校验失败后的自动重试）  # 合并进 report_writer 输出（highlights/follow_ups 等）
 
     def _model(self, role: str, builder):
         async def fn(messages, info: AgentInfo):
@@ -107,7 +108,10 @@ class FakeLLM:
             self.calls[role] = self.calls.get(role, 0) + 1
             prompt = "\n".join(str(getattr(p, "content", "")) for m in messages for p in getattr(m, "parts", []))
             self.prompts.setdefault(role, []).append(prompt)
-            full = _json.dumps(builder(prompt), ensure_ascii=False)
+            out = builder(prompt)
+            if self.writer_invalid_first and self.calls[role] == 1:
+                out = {**out, "key_points": "这不是列表", "charts": "也不是列表"}
+            full = _json.dumps(out, ensure_ascii=False)
             name = info.output_tools[0].name
             for i in range(0, len(full), 40):
                 yield {0: DeltaToolCall(name=name if i == 0 else None, json_args=full[i:i + 40],

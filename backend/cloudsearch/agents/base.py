@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 
+import asyncio
+import json
 import logging
 import time
 
@@ -107,32 +109,71 @@ async def run_agent(spec: AgentSpec[O], prompt: str, *, deps: Any = None, ctx: E
     raise AssertionError("unreachable")
 
 
-class _Streamed:
-    """流式调用的结果（与 AgentRunResult 用到的接口一致）。"""
+def _partial_output(output_type: Any, raw: str) -> Any | None:
+    """把流式中途的（不完整）JSON 解析成输出模型；缺的字段用默认值。解析不了返回 None。"""
+    from pydantic_core import from_json
 
-    def __init__(self, output: Any, messages: list) -> None:
-        self.output = output
-        self._messages = messages
+    try:
+        data = from_json(raw, allow_partial="trailing-strings")
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    try:
+        return output_type.model_validate(data)
+    except Exception:  # noqa: BLE001 —— 必填字段还没生成：用默认值占位，只用于展示
+        fields = getattr(output_type, "model_fields", {})
+        return output_type.model_construct(**{k: v for k, v in data.items() if k in fields})
 
-    def all_messages(self) -> list:
-        return self._messages
 
-
-async def _invoke(agent: Agent, prompt: str, deps: Any, limits: UsageLimits,
+async def _invoke(agent: Agent, prompt: str, deps: Any, limits: UsageLimits, output_type: Any,
                   on_partial: Callable[[Any], Awaitable[None]] | None):
-    """on_partial 不为空时流式调用：模型边生成边回调部分结果（用于实时显示撰写过程）；
+    """on_partial 不为空时：普通 run()（保留输出校验与自动重试）+ 事件流，边生成边回调部分结果。
     模型/适配器不支持流式时退回普通调用。"""
     if on_partial is None:
         return await agent.run(prompt, deps=deps, usage_limits=limits)
-    try:
-        async with agent.run_stream(prompt, deps=deps, usage_limits=limits) as r:
-            async for partial in r.stream_output(debounce_by=0.3):
+    from pydantic_ai.messages import PartDeltaEvent, PartStartEvent, TextPart, TextPartDelta, ToolCallPart, \
+        ToolCallPartDelta
+
+    loop = asyncio.get_running_loop()
+
+    async def handler(_ctx, events) -> None:
+        bufs: dict[int, str] = {}
+        last = 0.0
+        async for ev in events:
+            idx = None
+            if isinstance(ev, PartStartEvent):
+                idx = ev.index
+                part = ev.part
+                if isinstance(part, ToolCallPart):
+                    bufs[idx] = part.args if isinstance(part.args, str) else json.dumps(part.args or {})
+                elif isinstance(part, TextPart):
+                    bufs[idx] = part.content
+            elif isinstance(ev, PartDeltaEvent):
+                idx = ev.index
+                d = ev.delta
+                if isinstance(d, ToolCallPartDelta) and isinstance(d.args_delta, str):
+                    bufs[idx] = bufs.get(idx, "") + d.args_delta
+                elif isinstance(d, ToolCallPartDelta) and isinstance(d.args_delta, dict):
+                    bufs[idx] = json.dumps(d.args_delta)
+                elif isinstance(d, TextPartDelta):
+                    bufs[idx] = bufs.get(idx, "") + d.content_delta
+            if idx is None or loop.time() - last < 0.3:
+                continue
+            raw = bufs.get(idx, "")
+            brace = raw.find("{")
+            if brace < 0:
+                continue
+            partial = _partial_output(output_type, raw[brace:])
+            if partial is not None:
+                last = loop.time()
                 try:
                     await on_partial(partial)
                 except Exception:  # noqa: BLE001 —— 展示失败不影响撰写
                     log.debug("on_partial failed", exc_info=True)
-            output = await r.get_output()
-            return _Streamed(output, r.all_messages())
+
+    try:
+        return await agent.run(prompt, deps=deps, usage_limits=limits, event_stream_handler=handler)
     except AssertionError as e:
         if "stream" not in str(e):
             raise
@@ -164,7 +205,8 @@ async def _run_once(spec: AgentSpec[O], prompt: str, resolved, *, deps: Any, ctx
     t0 = time.monotonic()
     want_prompt = get_settings().logs_include_prompts
     try:
-        result = await _invoke(agent, prompt, deps, UsageLimits(request_limit=spec.request_limit), on_partial)
+        result = await _invoke(agent, prompt, deps, UsageLimits(request_limit=spec.request_limit), spec.output_type,
+                               on_partial)
     except Exception as e:
         trace("llm", f"{spec.role.value} 调用失败（{time.monotonic() - t0:.1f}s）：{type(e).__name__}: {str(e)[:500]}",
               prompt_chars=len(prompt), status_code=getattr(e, "status_code", None),
