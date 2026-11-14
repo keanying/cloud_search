@@ -68,6 +68,10 @@ privacy:
 
 之后每次启动都会跳过已完成的步骤；按 Ctrl+C 会一起停止 MinerU。
 
+每次启动都会**重启 MinerU**：如果 8002 端口还被上次残留的本项目 MinerU 占着（例如在 PyCharm 里直接点了停止），
+会先结束它再重新启动；占用端口的若是其他程序则不会动它，只提示 PID 与命令行。想沿用正在运行的 MinerU 可加
+`python run.py --keep-mineru`。Windows 上启动器还会把 MinerU、主程序、worker 放进同一个“作业”，启动器被强制结束时系统会一并结束它们，不再残留。
+
 **Linux 服务器**：
 
 ```bash
