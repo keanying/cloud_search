@@ -22,10 +22,11 @@ log = logging.getLogger("cloudsearch")
 
 async def sync_config_to_db() -> None:
     """把 config.yaml 中的 llm 配置同步进数据库。"""
-    from .llm.seed import sync_llm_config
+    from .llm.seed import sync_llm_config, sync_local_llm
 
     async with session_scope() as db:
         await sync_llm_config(db)
+        await sync_local_llm(db)
 
 
 @asynccontextmanager

@@ -378,13 +378,189 @@ def app_config() -> dict:
     """用 .venv 读取并校验 config.yaml（有错会在这里提示）。"""
     code = ("import json;from cloudsearch.core.config import get_settings as g;s=g();"
             "print(json.dumps({'host':s.server_host,'port':s.server_port,'embedded':s.embedded_worker,"
-            "'auto_create':s.auto_create_tables,'db':s.database_url.split(':',1)[0]}))")
+            "'auto_create':s.auto_create_tables,'db':s.database_url.split(':',1)[0],"
+            "'mineru_local':s.mineru_local,'mineru_port':s.mineru_local_port,'mineru_tier':s.mineru_tier,"
+            "'mineru_source':s.mineru_model_source,'mineru_extras':s.mineru_extras,"
+            "'ollama_url':s.local_llm_ollama_url,'ollama_models':s.local_llm_ollama_models,"
+            "'local_only':s.privacy_data_local_only}))")
     try:
         out = subprocess.check_output([str(VENV_PY), "-c", code], cwd=str(ROOT), text=True, stderr=subprocess.STDOUT,
                                       encoding="utf-8")
     except subprocess.CalledProcessError as e:
         fail("config.yaml 配置有误：\n" + e.output.strip().splitlines()[-1])
     return json.loads(out.strip().splitlines()[-1])
+
+
+# ------------------------------------------------------------------ 本机 AI 组件（数据不出域）
+# MinerU 装在独立环境 .venv-mineru（依赖较重，与主程序隔离），模型放在 .mineru/models，运行时离线加载
+MINERU_VENV = ROOT / ".venv-mineru"
+MINERU_HOME = ROOT / ".mineru"
+MINERU_PY = MINERU_VENV / ("Scripts/python.exe" if IS_WIN else "bin/python")
+MINERU_KIT = MINERU_VENV / ("Scripts/mineru-kit.exe" if IS_WIN else "bin/mineru-kit")
+MODEL_DOWNLOAD_TIMEOUT_S = 3 * 3600
+
+
+def mineru_env(offline: bool) -> dict[str, str]:
+    env = {"MINERU_HOME": str(MINERU_HOME), "PYTHONUTF8": "1"}
+    if offline:
+        env["MINERU_MODEL_SOURCE"] = "local"  # 只用已下载的模型，缺失时报错而不是联网下载
+    return env
+
+
+def mineru_model_tier(tier: str) -> str | None:
+    """下载哪一档模型：flash 不需要模型；advanced 与 standard 共用模型。"""
+    return None if tier == "flash" else ("standard" if tier in ("standard", "advanced") else "basic")
+
+
+def ensure_mineru(cfg: dict, opts: dict[str, list[str]], force: bool) -> None:
+    if not cfg.get("mineru_local"):
+        return
+    step("准备 MinerU（本机文档解析：安装到 .venv-mineru，模型保存在 .mineru/）")
+    extras = (cfg.get("mineru_extras") or "").strip()
+    spec = f"mineru[{extras}]>=4.0,<5" if extras else "mineru>=4.0,<5"
+    stamp = MINERU_VENV / ".cloudsearch-mineru"
+    if force or not MINERU_KIT.exists() or not stamp_ok(stamp, spec):
+        uv = shutil.which("uv")
+        if not MINERU_PY.exists():
+            if uv:
+                run([uv, "venv", str(MINERU_VENV), "--python", sys.executable, "--seed"])
+            else:
+                run([sys.executable, "-m", "venv", str(MINERU_VENV)])
+        sources = order_sources("Python 包", PIP_SOURCES, opts.get("pip_index_urls", []), "/pip/")
+
+        def attempt(index: str) -> bool:
+            if uv:
+                env = {"UV_HTTP_TIMEOUT": "120", "UV_CONCURRENT_DOWNLOADS": "8", "UV_LINK_MODE": "copy"}
+                return run_try([uv, "pip", "install", "--python", str(MINERU_PY), "--index-url", index, spec], env=env)
+            return run_try([MINERU_PY, "-m", "pip", "install", "--disable-pip-version-check", "--timeout", "60",
+                            "-i", index, "--trusted-host", index.split("/")[2], spec])
+
+        try_sources("安装 MinerU", sources, attempt)
+        stamp.write_text(spec, encoding="utf-8")
+    else:
+        info("MinerU 已安装，跳过")
+    tier = mineru_model_tier(cfg.get("mineru_tier") or "standard")
+    if tier is None:
+        info("tier=flash：不需要下载模型")
+        return
+    first = cfg.get("mineru_source") or "modelscope"
+    order = [first] + [x for x in ("modelscope", "huggingface") if x != first]
+    mstamp = MINERU_HOME / f".models-{tier}"
+    if mstamp.exists() and not force:
+        info(f"MinerU 模型（{tier}）已下载，跳过")
+        return
+    MINERU_HOME.mkdir(parents=True, exist_ok=True)
+    info(f"下载 MinerU 模型（{tier}，首次需要较长时间，之后离线使用）")
+    for src in order:
+        env = mineru_env(offline=False)
+        if src == "huggingface" and "HF_ENDPOINT" not in os.environ:
+            env["HF_ENDPOINT"] = (opts.get("hf_endpoint") or ["https://hf-mirror.com"])[0]
+        if run_try([MINERU_KIT, "models", "download", "--tier", tier, "--source", src], env=env,
+                   timeout=MODEL_DOWNLOAD_TIMEOUT_S):
+            run_try([MINERU_KIT, "models", "verify", "--tier", tier], env=env, timeout=600)
+            mstamp.write_text(src, encoding="utf-8")
+            return
+        info(f"从 {src} 下载失败，尝试下一个来源…")
+    fail("MinerU 模型下载失败", "请检查网络；或把 config.yaml 的 mineru.tier 改为 basic（模型更小），"
+         "或暂时关闭 mineru.local（文字版 PDF/Word/Excel 仍可用内置解析）")
+
+
+def _ollama_bin() -> str | None:
+    found = shutil.which("ollama")
+    if found:
+        return found
+    if IS_WIN:
+        p = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe"
+        if p.exists():
+            return str(p)
+    return None
+
+
+def _ollama_tags(url: str) -> list[str] | None:
+    try:
+        with _LOCAL_OPENER.open(url.rstrip("/") + "/api/tags", timeout=5) as r:
+            return [m.get("name", "") for m in json.loads(r.read().decode("utf-8")).get("models", [])]
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def ensure_ollama(cfg: dict) -> subprocess.Popen | None:
+    """本地大模型：确保 Ollama 在运行，并拉取 config.yaml 的 local_llm.ollama_models。返回本脚本启动的 ollama 进程。"""
+    models = cfg.get("ollama_models") or []
+    if not models:
+        return None
+    step("准备本地大模型（Ollama）")
+    url = cfg.get("ollama_url") or "http://127.0.0.1:11434"
+    exe = _ollama_bin()
+    started = None
+    tags = _ollama_tags(url)
+    if tags is None:
+        if not exe:
+            info("没有找到 Ollama。请先安装：Windows 从 https://ollama.com/download 下载安装包；"
+                 "Linux 运行 curl -fsSL https://ollama.com/install.sh | sh 。安装后重新启动本程序。")
+            info("（本次继续启动，但本地大模型不可用）")
+            return None
+        info("启动 Ollama 服务")
+        kw: dict = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+        if IS_WIN:
+            kw["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+        started = subprocess.Popen([exe, "serve"], **kw)
+        for _ in range(30):
+            time.sleep(1)
+            tags = _ollama_tags(url)
+            if tags is not None:
+                break
+        if tags is None:
+            info("Ollama 未能启动，本地大模型不可用")
+            return started
+    for m in models:
+        want = m if ":" in m else m + ":latest"
+        if want in tags or m in tags:
+            info(f"{m} 已存在，跳过")
+            continue
+        if not exe:
+            info(f"需要拉取 {m}，但本机没有 ollama 命令（服务可能在其他机器上），请在 Ollama 所在机器执行 ollama pull {m}")
+            continue
+        info(f"拉取本地模型 {m}（首次较慢）")
+        if not run_try([exe, "pull", m], timeout=MODEL_DOWNLOAD_TIMEOUT_S):
+            info(f"拉取 {m} 失败，可稍后手动执行：ollama pull {m}")
+    return started
+
+
+def start_mineru(cfg: dict) -> subprocess.Popen | None:
+    """启动本机 MinerU 服务（离线模型），等待端口就绪。失败时不阻止主程序启动（文字版文档仍可内置解析）。"""
+    if not cfg.get("mineru_local"):
+        return None
+    if not MINERU_KIT.exists():
+        info("MinerU 尚未安装（去掉 --no-install 运行一次），本次不启动")
+        return None
+    port = int(cfg.get("mineru_port") or 8002)
+    if not port_free("127.0.0.1", port):
+        info(f"端口 {port} 已被占用，假定 MinerU 已在运行")
+        return None
+    MINERU_HOME.mkdir(parents=True, exist_ok=True)
+    log = open(MINERU_HOME / "server.log", "ab")  # noqa: SIM115 —— 随进程生命周期
+    kw: dict = {"cwd": str(ROOT), "env": {**os.environ, **mineru_env(offline=True)}, "stdout": log, "stderr": log}
+    if IS_WIN:
+        kw["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+    tier = cfg.get("mineru_tier") or "standard"
+    p = subprocess.Popen([str(MINERU_KIT), "api-server", "--host", "127.0.0.1", "--port", str(port),
+                          "--tier", tier], **kw)
+    step(f"启动 MinerU（127.0.0.1:{port}，{tier}，离线模型；日志 .mineru/server.log）")
+    import socket
+
+    for _ in range(600):
+        if p.poll() is not None:
+            info(f"MinerU 启动失败（退出码 {p.returncode}），请查看 .mineru/server.log；扫描件/图片/PPT 将无法识别")
+            return None
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=1):
+                info("MinerU 已就绪")
+                return p
+        except OSError:
+            time.sleep(1)
+    info("MinerU 10 分钟内未就绪，继续启动主程序（MinerU 就绪后自动可用）")
+    return p
 
 
 def migrate(cfg: dict) -> None:
@@ -429,15 +605,19 @@ def wait_health(url: str, timeout: float = 60, procs: list | None = None) -> tup
     return False, last
 
 
-def serve(cfg: dict, args: argparse.Namespace, pm: list[str] | None) -> None:
+def serve(cfg: dict, args: argparse.Namespace, pm: list[str] | None,
+          extra: list[subprocess.Popen] | None = None) -> None:
     host = args.host or cfg["host"]
     port = args.port or cfg["port"]
     if not port_free(host, port):
         fail(f"端口 {port} 已被占用", "请关闭占用程序，或在 config.yaml 的 server.port 修改端口，或 python run.py --port 8001")
+    if cfg.get("mineru_local") and int(cfg.get("mineru_port") or 8002) == int(port):
+        fail(f"MinerU 与主程序端口冲突（{port}）", "请修改 config.yaml 的 mineru.local_port")
     env = {**os.environ, "PYTHONUTF8": "1", "PYDANTIC_AI_NO_BANNER": "1"}
     if PW_DIR.is_dir() and "PLAYWRIGHT_BROWSERS_PATH" not in env:
         env["PLAYWRIGHT_BROWSERS_PATH"] = str(PW_DIR)
     procs: list[subprocess.Popen] = []
+    helpers = [p for p in (extra or []) if p is not None]  # MinerU / Ollama：随主程序一起停止
     kw = {"cwd": str(ROOT), "env": env}
     if IS_WIN:
         kw["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
@@ -476,13 +656,13 @@ def serve(cfg: dict, args: argparse.Namespace, pm: list[str] | None) -> None:
     except KeyboardInterrupt:
         print("\n正在停止…", flush=True)
     finally:
-        for p in procs:
+        for p in procs + helpers:
             if p.poll() is None:
                 if IS_WIN:
                     p.send_signal(signal.CTRL_BREAK_EVENT)  # type: ignore[attr-defined]
                 else:
                     p.terminate()
-        for p in procs:
+        for p in procs + helpers:
             try:
                 p.wait(timeout=15)
             except subprocess.TimeoutExpired:
@@ -520,11 +700,20 @@ def main() -> None:
         sys.exit(subprocess.call([str(VENV_PY), "-m", "cloudsearch.search.diagnose"], cwd=str(ROOT)))
     cfg = app_config()
     info(f"数据库：{cfg['db']}；执行器：{'内嵌' if cfg['embedded'] else '独立进程'}")
+    if cfg.get("local_only"):
+        info("数据不出域：已开启（大模型与文件解析只使用本机/内网服务）")
+    ollama_p = None
+    if not args.no_install:
+        ensure_mineru(cfg, opts, args.rebuild)
+    ollama_p = ensure_ollama(cfg)
     migrate(cfg)
     if args.setup_only:
+        if ollama_p is not None and ollama_p.poll() is None:
+            ollama_p.terminate()
         step("准备完成")
         return
-    serve(cfg, args, pm)
+    mineru_p = start_mineru(cfg)
+    serve(cfg, args, pm, extra=[ollama_p, mineru_p])
 
 
 if __name__ == "__main__":

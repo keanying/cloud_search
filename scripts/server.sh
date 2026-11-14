@@ -8,16 +8,19 @@
 #   scripts/server.sh restart   重启
 #   scripts/server.sh status    查看进程与健康状态
 #   scripts/server.sh check     健康检查（正常退出码 0，异常 1；可用于 cron / 监控）
-#   scripts/server.sh logs [api|worker]   跟踪日志
+#   scripts/server.sh logs [api|worker|mineru]   跟踪日志
 #   scripts/server.sh build     仅重新打包前端
 #
 # 配置统一在仓库根目录 config.yaml（server.host/port、database、worker 等）。
 # worker 进程数取 config.yaml 的 worker.processes（环境变量 WORKERS 可临时覆盖）；STOP_TIMEOUT=30 停止等待秒数。
+# mineru.local=true 时：setup 会安装 MinerU 到 .venv-mineru 并下载模型到 .mineru/models；start/stop 一并管理
+# 本机 MinerU 服务（只监听 127.0.0.1，离线加载模型，数据不出本机）。
 # =====================================================================
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV_PY="$ROOT/.venv/bin/python"
+MINERU_KIT="$ROOT/.venv-mineru/bin/mineru-kit"
 RUN_DIR="$ROOT/run"
 LOG_DIR="$ROOT/logs"
 STOP_TIMEOUT="${STOP_TIMEOUT:-30}"
@@ -51,7 +54,8 @@ read_config() {
   "$VENV_PY" - <<'PY'
 from cloudsearch.core.config import get_settings
 s = get_settings()
-print(s.server_host, s.server_port, "1" if s.embedded_worker else "0", s.worker_processes)
+print(s.server_host, s.server_port, "1" if s.embedded_worker else "0", s.worker_processes,
+      "1" if s.mineru_local else "0", s.mineru_local_port, s.mineru_tier)
 PY
 }
 
@@ -62,7 +66,7 @@ pid_alive() {
   if [ -r "/proc/$pid/stat" ]; then
     local state; state="$(awk '{print $3}' "/proc/$pid/stat" 2>/dev/null)"
     [ "$state" = "Z" ] && return 1
-    tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -q "cloudsearch" || return 1
+    tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -q -e "cloudsearch" -e "mineru-kit" || return 1
   fi
   return 0
 }
@@ -102,7 +106,7 @@ stop_one() {
 
 cmd_setup() {
   local py; py="$(find_python)" || { c_red "需要 Python 3.12 或 3.13"; exit 1; }
-  echo "使用 $py 执行安装（依赖 / Chromium / 前端打包 / 迁移）"
+  echo "使用 $py 执行安装（依赖 / Chromium / 前端打包 / 迁移；mineru.local=true 时含 MinerU 与模型）"
   "$py" "$ROOT/run.py" --setup-only --no-browser
 }
 
@@ -116,8 +120,10 @@ cmd_start() {
   require_venv
   local cfg host port embedded processes
   cfg="$(read_config)" || { c_red "config.yaml 配置有误："; read_config; exit 1; }
-  read -r host port embedded processes <<<"$cfg"
+  local mlocal mport mtier
+  read -r host port embedded processes mlocal mport mtier <<<"$cfg"
   local workers="${WORKERS:-$processes}"
+  if [ "$mlocal" = "1" ]; then start_mineru "$mport" "$mtier"; fi
   echo "启动云搜浏览器（$host:$port）"
   # 不使用 --reload；单进程 uvicorn。如需多核，可起多个 worker 进程分担任务
   start_one api "$VENV_PY" -m cloudsearch.serve --host "$host" --port "$port" --forwarded-allow-ips "127.0.0.1"
@@ -141,6 +147,22 @@ cmd_stop() {
   echo "停止云搜浏览器"
   for f in "$RUN_DIR"/worker-*.pid; do [ -e "$f" ] && stop_one "$(basename "$f" .pid)"; done
   stop_one api
+  stop_one mineru
+}
+
+# 本机 MinerU：离线模型（MINERU_MODEL_SOURCE=local），只监听 127.0.0.1
+start_mineru() {
+  local mport="$1" mtier="$2"
+  if [ ! -x "$MINERU_KIT" ]; then c_yellow "  mineru.local=true 但 MinerU 未安装，先执行 scripts/server.sh setup"; return 0; fi
+  echo "启动 MinerU（127.0.0.1:$mport，$mtier）"
+  MINERU_HOME="$ROOT/.mineru" MINERU_MODEL_SOURCE=local \
+    start_one mineru "$MINERU_KIT" api-server --host 127.0.0.1 --port "$mport" --tier "$mtier"
+  for _ in $(seq 1 600); do
+    if (exec 3<>"/dev/tcp/127.0.0.1/$mport") 2>/dev/null; then c_green "  MinerU 就绪"; return 0; fi
+    pid_alive "$(pid_of mineru)" || { c_red "  MinerU 启动失败，最近日志："; tail -n 20 "$LOG_DIR/mineru.log"; return 0; }
+    sleep 1
+  done
+  c_yellow "  MinerU 10 分钟内未就绪（模型加载中？），继续启动主程序"
 }
 
 # status：展示；check：严格判断并返回退出码
@@ -148,7 +170,8 @@ cmd_status() {
   local strict="${1:-0}" ok=1 cfg host port embedded processes
   require_venv
   cfg="$(read_config 2>/dev/null)" || { c_red "config.yaml 配置有误"; return 1; }
-  read -r host port embedded processes <<<"$cfg"
+  local mlocal mport mtier
+  read -r host port embedded processes mlocal mport mtier <<<"$cfg"
   local pid; pid="$(pid_of api)"
   if pid_alive "$pid"; then echo "  api        运行中 PID $pid"; else c_red "  api        未运行"; ok=0; fi
   if [ "$embedded" = "0" ]; then
@@ -161,6 +184,11 @@ cmd_status() {
     [ "$n" -eq 0 ] && { c_red "  worker     未运行（worker.embedded=false 时必须运行）"; ok=0; }
   else
     echo "  worker     内嵌于 api"
+  fi
+  if [ "$mlocal" = "1" ]; then
+    local mp; mp="$(pid_of mineru)"
+    if pid_alive "$mp" && (exec 3<>"/dev/tcp/127.0.0.1/$mport") 2>/dev/null; then echo "  mineru     运行中 PID $mp（127.0.0.1:$mport）"
+    else c_red "  mineru     未运行（扫描件/图片/PPT 无法解析）"; ok=0; fi
   fi
   local body
   if body="$(http_get "$(health_url "$host" "$port")" 2>/dev/null)"; then echo "  health     $body"

@@ -161,6 +161,10 @@ async def test_model(model_profile_id: str, _: CurrentUser = Depends(admin_user)
     p = await s.get(LlmProvider, m.provider_id) if m else None
     if m is None or p is None:
         raise HTTPException(404, "模型不存在")
+    from ...core import privacy
+
+    if privacy.enabled() and not privacy.url_internal(p.base_url):
+        raise HTTPException(409, f"已开启数据不出域：{p.provider_name}（{p.base_url}）不在本机/内网，不会向它发送数据")
     await s.commit()
     started = time.monotonic()
     try:

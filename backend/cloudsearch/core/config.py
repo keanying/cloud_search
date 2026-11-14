@@ -218,6 +218,19 @@ class Settings(BaseSettings):
     mineru_cloud_model: str = "vlm"  # pipeline / vlm
     mineru_language: str = "ch"
     mineru_cli_command: list[str] = ["mineru", "parse", "{input}", "-o", "{output}", "--pages", "all"]
+    # 本机托管 MinerU：启动脚本自动安装到 .venv-mineru、下载模型到 .mineru/models、离线启动 api-server 并接入
+    mineru_local: bool = False
+    mineru_local_port: int = 8002
+    mineru_model_source: str = "modelscope"  # 下载模型的来源：modelscope（国内）/ huggingface
+    mineru_extras: str = ""  # 安装附加组件：空=基础版（CPU/ONNX + llama.cpp）；torch / full（NVIDIA GPU 高吞吐）
+
+    # 数据不出域：用户数据（文件内容、对话）只发往本机/内网服务，见 core/privacy.py
+    privacy_data_local_only: bool = False
+    privacy_allowed_hosts: list[str] = []  # 额外视为内网的域名（如公司内部大模型网关 llm.corp.example）
+
+    # 本地大模型（Ollama）：启动脚本自动拉取模型并登记为“本地模型（Ollama）”供应方
+    local_llm_ollama_url: str = "http://127.0.0.1:11434"
+    local_llm_ollama_models: list[str] = []
 
     # worker（embedded=true 时嵌入 API 进程，单进程即可运行；生产建议独立 worker）
     embedded_worker: bool = True

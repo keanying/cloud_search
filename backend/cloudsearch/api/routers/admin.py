@@ -398,15 +398,23 @@ def _static_config() -> list[dict]:
             {"label": "代理", "value": mask_url(st.browser_proxy) if st.browser_proxy else "未设置（直连）"},
             {"label": "语言区域", "value": st.browser_locale}]},
         {"group": "文件解析", "items": _parser_items(st, mask_url)},
+        {"group": "数据不出域", "items": [
+            {"label": "状态", "value": "已开启：大模型与文件解析只使用本机/内网服务，涉及文件的任务不联网"
+             if st.privacy_data_local_only else "未开启"},
+            {"label": "额外内网域名", "value": "、".join(st.privacy_allowed_hosts) or "无"}]},
     ]
 
 
 def _parser_items(st, mask_url) -> list[dict]:
     from ...files.parsers import cli_available
 
+    from ...files.parsers import api_url
+
     mineru = []
-    if st.mineru_api_url:
-        mineru.append(f"自部署 {mask_url(st.mineru_api_url)}（{st.mineru_tier}）")
+    if st.mineru_local and not st.mineru_api_url:
+        mineru.append(f"本机托管 127.0.0.1:{st.mineru_local_port}（{st.mineru_tier}，离线模型）")
+    elif api_url():
+        mineru.append(f"自部署 {mask_url(api_url())}（{st.mineru_tier}）")
     if st.mineru_cloud_token:
         mineru.append(f"mineru.net 云端（{st.mineru_cloud_model}）")
     if cli_available():

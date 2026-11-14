@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -153,16 +155,26 @@ async def resolve_model(session: AsyncSession, role: str) -> ResolvedModel:
     models: list[Model] = []
     pricing: dict[str, ModelPricing] = {}
     primary: str | None = None
+    from ..core import privacy
+
+    blocked: list[str] = []
     for pid in profile_ids:
         loaded = await _load_profile(session, pid)
         if loaded is None:
             continue
         m, p = loaded
+        if privacy.enabled() and not await asyncio.to_thread(privacy.url_internal, p.base_url):
+            blocked.append(f"{p.provider_name}（{p.base_url}）")
+            continue
         primary = primary or m.model_profile_id
         models.append(build_model(m, p))
         pricing[m.model_name] = ModelPricing(m.model_profile_id, p.provider_name, m.model_name,
                                              m.input_price_minor_amt, m.output_price_minor_amt, m.currency_code)
     if not models:
+        if blocked:
+            raise LlmNotConfigured(f"已开启数据不出域，智能体角色「{role}」绑定的模型不在本机/内网："
+                                   f"{'、'.join(blocked)}。请绑定本地模型（如 Ollama、vLLM），"
+                                   "或把内部网关域名加入 config.yaml 的 privacy.allowed_hosts")
         raise LlmNotConfigured(f"智能体角色「{role}」绑定的模型不可用（已停用或供应方被禁用）")
     model: Model = models[0] if len(models) == 1 else FallbackModel(models[0], *models[1:])
     return ResolvedModel(model=model, pricing=pricing, primary_profile_id=primary,

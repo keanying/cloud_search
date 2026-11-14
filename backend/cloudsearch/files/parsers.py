@@ -241,6 +241,17 @@ def _err(resp) -> str:
 
 
 # ---------------------------------------------------------------- MinerU：自部署 HTTP
+def api_url() -> str | None:
+    """自部署 MinerU 地址：显式配置优先；开启 mineru.local 时为本机托管的服务。"""
+    s = get_settings()
+    if s.mineru_api_url:
+        return s.mineru_api_url
+    return f"http://127.0.0.1:{s.mineru_local_port}" if s.mineru_local else None
+
+
+EXTERNAL_PARSERS = {"mineru_cloud", "mineru_agent"}
+
+
 def _abs(base: str, url: str) -> str:
     return base + url if url.startswith("/") else url
 
@@ -300,7 +311,7 @@ async def mineru_api_parse(data: bytes, name: str, *, deadline: float, ext: str 
     2) mineru-kit api-server 主服务（Tasks API：/v1/tasks）——只启动这一个进程即可；
     3) 旧版 mineru-api（POST /file_parse，返回 JSON）。"""
     s = get_settings()
-    base = (s.mineru_api_url or "").rstrip("/")
+    base = (api_url() or "").rstrip("/")
     if not base:
         raise ParseError("未配置 mineru.api_url")
     ext = ext or Path(name).suffix.lower().lstrip(".")
@@ -461,12 +472,18 @@ def candidates(ext: str) -> list[str]:
         order = ["builtin"]  # 表格/文本不需要版面识别，内置解析更快、数值不经 OCR
     else:
         order = []
-        if s.mineru_api_url:
+        if api_url():
             order.append("mineru_api")
         if s.mineru_cloud_token:
             order.append("mineru_cloud")
         if cli_available():
             order.append("mineru_cli")
+    from ..core import privacy
+
+    if privacy.enabled():  # 数据不出域：不把文件发到 mineru.net
+        order = [p for p in order if p not in EXTERNAL_PARSERS] or (["builtin"] if builtin_ok else [])
+        if not order:
+            raise ParseError("数据不出域模式下不能使用 MinerU 云端；请配置自部署 MinerU（mineru.local 或 mineru.api_url）")
     if builtin_ok and "builtin" not in order:
         order.append("builtin")  # MinerU 不可用时的兜底
     return order or ["builtin"]

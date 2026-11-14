@@ -154,3 +154,39 @@ async def sync_llm_config(s: AsyncSession, *, force: bool = False) -> dict[str, 
         stats["bindings"] += 1
     log.info("synced llm config from config.yaml: %s", stats)
     return stats
+
+
+OLLAMA_PROVIDER = "本地模型（Ollama）"
+
+
+async def sync_local_llm(s: AsyncSession) -> dict[str, int]:
+    """config.yaml 的 local_llm.ollama_models：登记“本地模型（Ollama）”供应方与模型（只新增，不覆盖后台修改）；
+    还没有默认模型时，把第一个本地模型设为默认。"""
+    from ..core.config import get_settings
+
+    st = get_settings()
+    if not st.local_llm_ollama_models:
+        return {}
+    base = st.local_llm_ollama_url.rstrip("/") + "/v1"
+    p = (await s.execute(select(LlmProvider).where(LlmProvider.provider_name == OLLAMA_PROVIDER))).scalar()
+    if p is None:
+        p = LlmProvider(provider_id=new_id("llmp"), provider_name=OLLAMA_PROVIDER, provider_type="openai_compatible",
+                        base_url=base, enabled=True, api_key_cipher=encrypt_secret("ollama"), api_key_mask="ollama")
+        s.add(p)
+        await s.flush()
+    added = 0
+    first_id = None
+    for name in st.local_llm_ollama_models:
+        m = (await s.execute(select(LlmModel).where(LlmModel.provider_id == p.provider_id,
+                                                    LlmModel.model_name == name))).scalar()
+        if m is None:
+            m = LlmModel(model_profile_id=new_id("llmm"), provider_id=p.provider_id, model_name=name,
+                         display_name=name, supports_tools=True, supports_json_schema=True, supports_json_object=True,
+                         supports_vision=False, enabled=True, currency_code="CNY")
+            s.add(m)
+            await s.flush()
+            added += 1
+        first_id = first_id or m.model_profile_id
+    if first_id and await s.get(AgentModelBinding, "default") is None:
+        s.add(AgentModelBinding(agent_role="default", model_profile_id=first_id, fallback_profile_ids=[]))
+    return {"models_added": added}

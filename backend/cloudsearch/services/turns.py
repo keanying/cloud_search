@@ -147,6 +147,10 @@ def apply_file_rules(decision, *, user_text: str, usable: set[str], new_files: l
         sc.file_ids = [f for f in dict.fromkeys(sc.file_ids) if f in usable]
         if not sc.file_ids and new_files:
             sc.file_ids = list(new_files)
+        from ..core import privacy
+
+        if sc.file_ids and privacy.enabled():
+            sc.use_web = False  # 数据不出域：涉及文件的任务不联网，避免文件内容进入搜索词
         return decision
     if decision.kind == "chat" and new_files:
         title = (user_text or "文件问答")[:40]

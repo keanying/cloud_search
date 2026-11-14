@@ -90,6 +90,12 @@ scripts/server.sh logs [api|worker]     # 跟踪日志（logs/ 目录）
 
 也可用 Docker：`cp config.example.yaml config.yaml && docker compose up -d --build`，访问 http://localhost:8080 。
 
+## 上传文件与本地部署（数据不出域）
+
+对话中可以上传 PDF、Word、Excel/CSV、PPT、图片等文件做问答、总结、提取表格和分析；扫描件/图片/PPT 通过 MinerU 识别。
+在 config.yaml 设置 `mineru.local: true`、`privacy.data_local_only: true`、`local_llm.ollama_models`，启动脚本会随启动
+自动安装 MinerU、下载模型、拉取本地大模型并离线运行。完整步骤见 [docs/deploy-local.md](docs/deploy-local.md)。
+
 ## 目录结构
 
 ```

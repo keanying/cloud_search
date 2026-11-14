@@ -99,21 +99,44 @@ files:
   parse_timeout_s: 1800         # 单个文件解析超时（大 PDF 走 MinerU 可能需要几分钟）
 
 # ---------------------------------------------------------------- MinerU 多模态文档解析
-# MinerU（opendatalab/MinerU）把 PDF、扫描件、图片、Office 文档解析成带表格/公式/版面结构的 Markdown。三种接入方式任选：
-# 1) 自部署服务（推荐，文件不出内网）：另一台机器或本机安装 MinerU 4.x 后启动
+# MinerU（opendatalab/MinerU）把 PDF、扫描件、图片、Office 文档解析成带表格/公式/版面结构的 Markdown。接入方式任选：
+# 0) 本机托管（最省事，数据不出本机）：local: true。启动脚本（start.bat / run.py / scripts/server.sh）会自动
+#    安装 MinerU 到 .venv-mineru、下载模型到 .mineru/models（之后离线运行）、随主程序启动/停止 MinerU 服务。
+# 1) 自部署在另一台机器（如 GPU 服务器）：在那台机器上
 #      uv pip install -U "mineru>=4.0,<5"
-#      mineru-kit file-parse-server --host 0.0.0.0 --port 8003      # 提供 POST /v1/file_parse
-#    然后填 api_url。也兼容旧版 `mineru-api`（POST /file_parse）。CPU 即可运行，有 GPU 更快。
+#      mineru-kit models download --tier standard --source modelscope
+#      MINERU_MODEL_SOURCE=local mineru-kit api-server --host 0.0.0.0 --port 8002 --tier standard
+#    然后填 api_url: http://那台机器:8002（也兼容 mineru-kit file-parse-server 与旧版 mineru-api）。
 # 2) mineru.net 云端精准解析：在 mineru.net 申请 API Token 填到 cloud_token（单文件 ≤200MB/200 页；文件会发送到 mineru.net）。
 # 3) 本机命令行：本机已安装 MinerU 时，按 cli_command 调用（{input}/{output}/{output_dir} 会被替换）。
 mineru:
-  api_url:                      # 例：http://127.0.0.1:8003
+  local: false                  # true = 本机托管 MinerU（见上方说明 0）
+  local_port: 8002              # 本机 MinerU 端口（只监听 127.0.0.1；不要与 server.port 相同）
+  model_source: modelscope      # 首次下载模型的来源：modelscope（国内快）/ huggingface（失败会自动换另一个）
+  extras: ""                    # 空 = 基础版（CPU/核显即可）；torch 或 full = NVIDIA 显卡加速（下载更大）
+  api_url:                      # 例：http://10.0.0.8:8002（自部署在其他机器时填写；本机托管时留空）
   api_key:                      # 自部署服务前有网关鉴权时填写（Bearer）
   tier: standard                # flash / basic / standard / advanced（越高越准、越慢）
+                                #   basic：OCR+表格+公式，CPU 可用，模型约 0.8GB；standard：再加视觉大模型，复杂版面更准，
+                                #   建议 16GB 内存且 12 核以上或有显卡；只做文字版文档可用 flash（不需要模型）
   cloud_token:                  # mineru.net API Token；留空则不使用云端
   cloud_model: vlm              # pipeline / vlm
   language: ch                  # 文档主要语言（OCR 用）
   cli_command: [mineru, parse, "{input}", -o, "{output}", --pages, all]
+
+# ---------------------------------------------------------------- 数据不出域
+# 开启后：大模型只调用本机/内网地址（公网供应方会被拒绝）；文件解析不使用 mineru.net；涉及上传文件的任务不联网搜索。
+# 不涉及文件的公开信息搜索仍可使用（搜索本身就是访问公网）。详见 docs/deploy-local.md
+privacy:
+  data_local_only: false
+  allowed_hosts: []             # 额外视为内网的域名，如公司内部大模型网关 [llm.corp.example]
+
+# ---------------------------------------------------------------- 本地大模型（Ollama，可选）
+# 填写模型后，启动脚本会确保 Ollama 在运行并自动拉取这些模型，同时登记为“本地模型（Ollama）”供应方；
+# 还没有默认模型时，第一个模型会被设为默认模型。需要先安装 Ollama：https://ollama.com/download
+local_llm:
+  ollama_url: http://127.0.0.1:11434
+  ollama_models: []             # 例：[qwen3:8b]；显存充足可用 qwen3:32b（智能体需要工具调用/JSON 输出能力）
 
 # ---------------------------------------------------------------- 后台执行器
 worker:
