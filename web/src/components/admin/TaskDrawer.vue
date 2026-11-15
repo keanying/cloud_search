@@ -2,7 +2,7 @@
 import { tidySource } from '@/lib/sourceNames'
 import { computed, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
-import { ChevronRight, ExternalLink, FileDown, Loader2, MessageSquare } from 'lucide-vue-next'
+import { ChevronRight, ExternalLink, FileArchive, FileDown, Loader2, MessageSquare } from 'lucide-vue-next'
 import type { AdminTaskDetail } from '@/api/types'
 import { api } from '@/api/client'
 import DrawerTabs from '@/components/admin/DrawerTabs.vue'
@@ -79,6 +79,14 @@ const LIMIT_LABEL: Record<string, string> = {
     <template #headerActions>
       <button v-if="t" class="btn-secondary btn-sm shrink-0" title="下载该任务的执行日志（排查用）" @click="api.downloadTaskTrace(t.task_id)">
         <FileDown class="h-3.5 w-3.5" /> 执行日志
+      </button>
+      <button
+        v-if="t"
+        class="btn-primary btn-sm shrink-0"
+        title="完整调试包（ZIP）：每个智能体的输入输出、各引擎搜索结果、网页正文、步骤与报错"
+        @click="api.downloadDebugBundle({ taskId: t.task_id })"
+      >
+        <FileArchive class="h-3.5 w-3.5" /> 详细日志
       </button>
       <RouterLink v-if="t?.conversation_id" :to="{ name: 'chat', params: { id: t.conversation_id } }" class="btn-secondary btn-sm shrink-0">
         <MessageSquare class="h-3.5 w-3.5" /> 打开对话

@@ -1,5 +1,5 @@
 import type { Component } from 'vue'
-import { Activity, Boxes, Cpu, LayoutDashboard, ListChecks, Network, Radar, SlidersHorizontal, Users } from 'lucide-vue-next'
+import { Activity, Boxes, Bug, Cpu, LayoutDashboard, ListChecks, Network, Radar, SlidersHorizontal, Users } from 'lucide-vue-next'
 
 export interface AdminNavItem {
   name: string
@@ -59,6 +59,13 @@ export const ADMIN_NAV: { group: string | null; items: AdminNavItem[] }[] = [
     items: [
       { name: 'admin-tasks', label: '任务', icon: ListChecks, desc: '所有用户发起的任务：状态、步骤、来源与消耗' },
       { name: 'admin-runs', label: '调用记录', icon: Activity, desc: '每一次智能体模型调用：耗时、token、费用与错误', keywords: 'token 费用 错误 失败' },
+      {
+        name: 'admin-debug',
+        label: '调试日志',
+        icon: Bug,
+        desc: '开启详细调试记录，按任务或全系统下载日志包（智能体输入输出、搜索结果、网页正文、报错）',
+        keywords: '日志 debug 下载 排查 提示词 prompt 报错 错误 搜索结果',
+      },
     ],
   },
   {

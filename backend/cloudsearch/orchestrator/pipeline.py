@@ -586,7 +586,7 @@ class Pipeline:
         return chosen or fallback()
 
     async def _read_fn(self, c: TaskExecContext, sess, candidate_id: str, url: str) -> StepResult:
-        from ..core.tracelog import trace
+        from ..core.tracelog import debug_log, trace
 
         goal = "；".join(self.spec.scope.questions) or self.spec.requirement_text
         t0 = asyncio.get_running_loop().time()
@@ -611,6 +611,10 @@ class Pipeline:
               final_url=final if final != url else None, title=r.title, chars=len(r.text or ""), reason=r.reason)
         # 标题去掉“_腾讯新闻”之类的站点后缀；站点名丢弃版权声明等无效值，取不到时用域名
         r.title, r.site_name = tidy_source(r.title, r.site_name, final)
+        debug_log("read", f"读取{r.status}（{method}）：{url}", url=url, final_url=final, method=method,
+                  status=r.status, reason=r.reason, title=r.title, site=r.site_name,
+                  publish_time=r.publish_time_text, chars=len(r.text or ""), text_excerpt=(r.text or "")[:4000],
+                  duration_s=round(asyncio.get_running_loop().time() - t0, 2))
         if r.status == "captured" and normalize_url(final) in self.read_urls:
             return StepResult({"status": "duplicate", "url": url, "final_url": final})
         srid = new_id("srcrev")

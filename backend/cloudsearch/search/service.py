@@ -135,7 +135,14 @@ async def browser_search(s: CloudBrowserSession, queries: list[str | SearchQuery
                          ) -> SearchReport:
     """按配置的引擎顺序搜索。strategy=priority：总是先用第一个可用引擎，失败/被拦截/结果无关才换下一个；
     strategy=rotate：每个查询轮换起始引擎以分散负载。"""
-    from ..core.tracelog import trace
+    from ..core.tracelog import debug_log, trace
+
+    def dbg(sq: SearchQuery, label: str, status: str, t0: float, hits: list[SearchHit] | None = None, **kw) -> None:
+        debug_log("search", f"{label}：{status}「{sq.query}」", query=sq.query, engine=label, status=status,
+                  language=sq.language, recency=sq.recency, source=sq.source, purpose=sq.purpose,
+                  duration_s=round(time.monotonic() - t0, 2),
+                  hits=[{"rank": h.rank, "title": h.title, "url": h.url, "snippet": h.snippet} for h in hits]
+                  if hits is not None else None, **kw)
 
     settings = get_settings()
     per_query = per_query or settings.search_results_per_query
@@ -196,6 +203,8 @@ async def browser_search(s: CloudBrowserSession, queries: list[str | SearchQuery
                     except Exception as e:  # noqa: BLE001
                         log.warning("search engine %s still unavailable after takeover: %s", key, e)
                         got = []
+                dbg(sq, label, "需要人机验证" + ("（已人工处理）" if resolved else ""), t0, got if resolved else None,
+                    reason=why)
                 if not got:
                     health.block(key)
                     report.blocked_engines.append(key)
@@ -212,7 +221,10 @@ async def browser_search(s: CloudBrowserSession, queries: list[str | SearchQuery
                 else:
                     log.warning("search engine %s failed: %s", key, e)
                     trace("search", f"{label}：出错", error=f"{type(e).__name__}: {str(e)[:300]}")
+                dbg(sq, label, "无法访问" if (isinstance(e, EngineUnavailable) or is_network_error(e)) else "出错", t0,
+                    error=f"{type(e).__name__}: {e}")
                 continue
+            dbg(sq, label, "结果与查询无关" if got and not looks_relevant(sq.query, got) else f"{len(got)} 条结果", t0, got)
             if got and not looks_relevant(sq.query, got):
                 log.warning("search engine %s returned irrelevant results for %r; trying next", key, sq.query)
                 trace("search", f"{label}：结果与查询无关（可能被风控返回了无关内容），换下一个引擎",

@@ -8,6 +8,7 @@ import { useNow } from '@/lib/useNow'
 import { useChatStore } from '@/stores/chat'
 import { usePanelStore } from '@/stores/panel'
 import { useToastStore } from '@/stores/toast'
+import { useAuthStore } from '@/stores/auth'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import StageTimeline from '@/components/task/StageTimeline.vue'
 import StatTiles from '@/components/task/StatTiles.vue'
@@ -17,6 +18,8 @@ const props = defineProps<{ part: ProgressPart }>()
 const chat = useChatStore()
 const panel = usePanelStore()
 const toast = useToastStore()
+const auth = useAuthStore()
+const isAdmin = computed(() => !!auth.user?.is_admin)
 const menuOpen = ref(false)
 const busy = ref(false)
 const menuRoot = ref<HTMLElement | null>(null)
@@ -62,6 +65,19 @@ const metricsLine = computed(() => {
 const canPause = computed(() => status.value === 'queued' || status.value === 'running')
 const canResume = computed(() => status.value === 'paused')
 const canContinue = computed(() => TERMINAL_STATUSES.has(status.value))
+
+/** 管理员：下载这个任务的详细日志包（智能体输入输出、搜索结果、网页正文、报错等） */
+async function downloadDebug() {
+  menuOpen.value = false
+  busy.value = true
+  try {
+    await api.downloadDebugBundle({ taskId: props.part.task_id })
+  } catch (e) {
+    toast.error(e, '下载详细日志失败')
+  } finally {
+    busy.value = false
+  }
+}
 
 async function downloadTrace() {
   menuOpen.value = false
@@ -124,7 +140,7 @@ async function run(fn: () => Promise<TaskOut>, okText: string) {
       <button class="btn-secondary btn-sm" @click="panel.openSources(part.task_id)">
         <Library class="h-3.5 w-3.5" /> 来源
       </button>
-      <div v-if="canPause || canResume || canContinue" ref="menuRoot" class="relative">
+      <div v-if="canPause || canResume || canContinue || isAdmin" ref="menuRoot" class="relative">
         <button class="round-btn-light !h-8 !w-8" :disabled="busy" aria-label="更多操作" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen">
           <Loader2 v-if="busy" class="h-4 w-4 animate-spin" />
           <MoreHorizontal v-else class="h-4 w-4" />
@@ -163,6 +179,15 @@ async function run(fn: () => Promise<TaskOut>, okText: string) {
             @click="downloadTrace"
           >
             下载执行日志
+          </button>
+          <button
+            v-if="isAdmin"
+            role="menuitem"
+            class="block w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-white/10"
+            title="管理员：完整调试包（ZIP）——每个智能体的输入输出、各引擎搜索结果、网页正文、步骤与报错"
+            @click="downloadDebug"
+          >
+            下载详细日志（管理员）
           </button>
         </div>
         </Teleport>

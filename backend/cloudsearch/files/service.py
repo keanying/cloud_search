@@ -137,6 +137,12 @@ async def process_parse(file_id: str, worker_id: str) -> None:
     except Exception as e:  # noqa: BLE001
         log.exception("parse %s failed", file_id)
         res, md, md_ref, error = None, "", None, f"解析出错：{type(e).__name__}"
+    from ..core.tracelog import debug_log
+
+    debug_log("file", f"文件解析{'失败' if error else '完成'}：{name}", file_id=file_id, file_name=name, ext=ext,
+              parser=res.parser if res else None, detail=res.detail if res else None, error=error,
+              pages=res.page_qty if res else None, chars=len(md), notes=res.notes if res else None,
+              text_excerpt=md[:6000] if md else None)
     async with session_scope() as s:
         f = await s.get(UploadedFile, file_id)
         if f is None or f.worker_id != worker_id:

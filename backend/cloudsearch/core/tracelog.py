@@ -94,5 +94,62 @@ def config_summary() -> dict[str, Any]:
         "files": {"parser": s.files_parser, "mineru_local": s.mineru_local, "mineru_api": bool(s.mineru_api_url),
                   "mineru_tier": s.mineru_tier, "max_segments": s.files_max_segments},
         "privacy_local_only": s.privacy_data_local_only,
+        "logs": {"debug": s.logs_debug, "include_prompts": s.logs_include_prompts},
         "db": s.database_url.split(":", 1)[0],
     }
+
+
+# ---------------------------------------------------------------- 详细调试记录
+current_conversation: ContextVar[str | None] = ContextVar("cs_current_conversation", default=None)
+_debug_purged_day: str | None = None
+
+
+def debug_enabled() -> bool:
+    from .config import get_settings
+
+    return bool(get_settings().logs_debug)
+
+
+def debug_dir() -> Path:
+    return logs_dir() / "debug"
+
+
+def _purge_old_debug() -> None:
+    """每天第一次写入时删除超过保留天数的调试日志。"""
+    global _debug_purged_day
+    from .config import get_settings
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    if _debug_purged_day == today:
+        return
+    _debug_purged_day = today
+    keep = max(1, get_settings().logs_debug_keep_days)
+    cutoff = datetime.now().timestamp() - keep * 86400
+    for f in debug_dir().glob("*.jsonl"):
+        try:
+            if f.stat().st_mtime < cutoff:
+                f.unlink()
+        except OSError:
+            pass
+
+
+def debug_log(kind: str, message: str, *, task_id: str | None = None, conversation_id: str | None = None,
+              **data: Any) -> None:
+    """详细调试记录（仅在 logs.debug 开启时写入）：一行一个 JSON，写到 logs/debug/<日期>.jsonl。永不抛异常。
+    kind：llm（智能体调用）/ search（搜索结果）/ read（网页读取）/ file（文件解析）/ error 等。"""
+    if not debug_enabled():
+        return
+    try:
+        now = datetime.now()
+        row = {"time": now.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3], "kind": kind, "message": message,
+               "task_id": task_id or current_task.get(), "conversation_id": conversation_id or current_conversation.get(),
+               **{k: v for k, v in data.items() if v is not None}}
+        d = debug_dir()
+        line = json.dumps(row, ensure_ascii=False, default=str)
+        with _lock:
+            d.mkdir(parents=True, exist_ok=True)
+            _purge_old_debug()
+            with (d / f"{now:%Y-%m-%d}.jsonl").open("a", encoding="utf-8") as f:
+                f.write(line + "\n")
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).debug("debug log write failed", exc_info=True)

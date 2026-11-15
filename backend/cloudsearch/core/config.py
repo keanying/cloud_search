@@ -213,6 +213,10 @@ class Settings(BaseSettings):
 
     # 日志：logs/app.log（全局）、logs/tasks/<task_id>.log（每个任务的执行日志，可在页面下载）
     logs_dir: Path = Path("logs")
+    # 详细调试记录（管理后台可在线开关）：记录每次智能体调用的完整提示词与输出、各引擎完整搜索结果、
+    # 网页/文件解析出的正文片段，写入 logs/debug/<日期>.jsonl；含业务内容，排查完请关闭
+    logs_debug: bool = False
+    logs_debug_keep_days: int = 7
     logs_include_prompts: bool = False  # 执行日志里是否记录发给模型的提示词全文（可能含文件内容，默认关闭）
 
     # 上传文件（对话中的附件）：解析为 Markdown 后作为可引用的来源参与问答与分析

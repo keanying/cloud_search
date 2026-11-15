@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { ArrowUpRight, ChevronDown, Download, FileBarChart, FileSpreadsheet, FileText, Globe, Library, Paperclip, X } from 'lucide-vue-next'
+import { ArrowUpRight, ChevronDown, Download, FileArchive, FileBarChart, FileSpreadsheet, FileText, Globe, Library, Paperclip, X } from 'lucide-vue-next'
 import type { ArtifactFormat, ArtifactPart, ProgressPart, SourceOut, TakeoverPart as TakeoverPartT } from '@/api/types'
 import { api } from '@/api/client'
 import {
@@ -18,6 +18,7 @@ import { useChatStore } from '@/stores/chat'
 import { usePrefsStore } from '@/stores/prefs'
 import { usePanelStore } from '@/stores/panel'
 import { useToastStore } from '@/stores/toast'
+import { useAuthStore } from '@/stores/auth'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import TakeoverPart from '@/components/parts/TakeoverPart.vue'
 import StageTimeline from './StageTimeline.vue'
@@ -34,6 +35,20 @@ const chat = useChatStore()
 const prefs = usePrefsStore()
 const panel = usePanelStore()
 const toast = useToastStore()
+const auth = useAuthStore()
+const debugBusy = ref(false)
+/** 管理员：下载当前任务的详细日志包 */
+async function downloadDebug() {
+  if (!taskId.value) return
+  debugBusy.value = true
+  try {
+    await api.downloadDebugBundle({ taskId: taskId.value })
+  } catch (e) {
+    toast.error(e, '下载详细日志失败')
+  } finally {
+    debugBusy.value = false
+  }
+}
 
 const allParts = computed(() => chat.messages.flatMap((m) => m.parts))
 
@@ -244,6 +259,15 @@ function shown(s: SourceOut) {
             </button>
             <button class="btn-secondary btn-sm" @click="panel.openSources(taskId!)">
               <Library class="h-3.5 w-3.5" /> 全部来源
+            </button>
+            <button
+              v-if="auth.user?.is_admin"
+              class="btn-ghost btn-sm"
+              :disabled="debugBusy"
+              title="管理员：完整调试包（ZIP）——每个智能体的输入输出、各引擎搜索结果、网页正文、步骤与报错"
+              @click="downloadDebug"
+            >
+              <FileArchive class="h-3.5 w-3.5" /> 详细日志
             </button>
           </div>
         </section>
