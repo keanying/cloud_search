@@ -701,18 +701,19 @@ class Pipeline:
 
         return StepResult({"relevant": out.relevant, "findings": findings, "records": records}, persist)
 
-    def _aspect_of(self, aspect: str | None) -> str | None:
+    def _aspect_of(self, aspect: str | None, candidates: list[str] | None = None) -> str | None:
         """把抽取结果的 aspect 归到最接近的子问题（原文照抄优先，其次包含关系/字面重合）。"""
+        cands = self.sub_questions if candidates is None else candidates
         if not aspect:
             return None
-        if aspect in self.sub_questions:
+        if aspect in cands:
             return aspect
-        for q in self.sub_questions:
+        for q in cands:
             if aspect in q or q in aspect:
                 return q
         best, score = None, 0.0
         a = set(aspect)
-        for q in self.sub_questions:
+        for q in cands:
             sc = len(a & set(q)) / (len(a | set(q)) or 1)
             if sc > score:
                 best, score = q, sc
@@ -876,14 +877,14 @@ class Pipeline:
 
         return StepResult({"results": data, "artifact_ids": [], "xlsx": xlsx}, persist)
 
-    def _writer_evidence(self, verified: dict, budget: int = 40000) -> tuple[str, dict[int, str], dict[int, str]]:
+    def _writer_evidence(self, verified: dict, budget: int = 40000, keep=None) -> tuple[str, dict[int, str], dict[int, str]]:
         """给撰写智能体的证据块：按来源分组，标注可信度与发布时间；超出预算时优先保留高可信来源，
         并让每个子问题至少有来源入选。返回 (证据块, 每来源全部摘录文本, 每来源代表摘录)。"""
         rejected = set(verified.get("rejected", []))
         conflicted = set(verified.get("conflicted", []))
         by_n: dict[int, list[EvidenceRef]] = {}
         for e in self.findings:
-            if e.evidence_id not in rejected:
+            if e.evidence_id not in rejected and (keep is None or keep(e)):
                 by_n.setdefault(e.n, []).append(e)
         srcs = [s for s in sorted(self.sources.values(), key=lambda s: s.n) if by_n.get(s.n)]
         blocks: dict[int, str] = {}
@@ -919,6 +920,27 @@ class Pipeline:
             best_quote[n] = evs[0].quote[:240] if evs else ""
         return "\n\n".join(blocks[n] for n in chosen), evidence_text, best_quote
 
+    def _section_evidence(self, verified: dict, sections: list[str]) -> list[str]:
+        """分章撰写：每章只给本章的证据（按 aspect 归类）；本章来源太少时补上未归类的证据，仍不足则给全部证据。"""
+        out = []
+        for q in sections:
+            block, text, _ = self._writer_evidence(
+                verified, 16000, keep=lambda e, q=q: self._aspect_of(getattr(e, "aspect", None), sections) == q)
+            if len(text) < 3:
+                block, text, _ = self._writer_evidence(
+                    verified, 16000,
+                    keep=lambda e, q=q: self._aspect_of(getattr(e, "aspect", None), sections) in (q, None))
+            if len(text) < 2:
+                block = self._writer_evidence(verified, 16000)[0]
+            out.append(block)
+        return out
+
+    def _deep_report(self, sections: list[str], n_sources: int) -> bool:
+        """研究/混合报告、提纲 3-8 章、来源足够时分章撰写（篇幅与论述深度接近专业研究报告）。"""
+        s = get_settings()
+        return (s.task_deep_report and self.spec.mode in ("research", "hybrid") and 3 <= len(sections) <= 8
+                and n_sources >= 6)
+
     async def _write_fn(self, c: TaskExecContext, verified: dict, analysis: list[dict],
                         rows: list[dict]) -> StepResult:
         evidence_block, evidence_text, best_quote = self._writer_evidence(verified)
@@ -941,13 +963,29 @@ class Pipeline:
         report = self.spec.report
         outline = (report.outline if report and report.outline else []) or list(self.sub_questions)
         on_partial = self._draft_publisher(c, "answer" if is_answer else "report")
-        draft, used, charts = await report_writer.write(
-            kind="answer" if is_answer else "report",
-            question=report.question if report else "；".join(self.spec.scope.questions) or self.spec.requirement_text,
-            outline=outline, audience=report.audience if report else None,
-            evidence_block=evidence_block, valid_ns=set(evidence_text) or {s.n for s in self.sources.values()},
-            analysis_block=analysis_block, conflicts_block=conflicts_block, gaps_block="\n".join(gaps), ctx=c,
-            today=utcnow().strftime("%Y-%m-%d"), evidence_by_n=evidence_text, on_partial=on_partial)
+        question = report.question if report else "；".join(self.spec.scope.questions) or self.spec.requirement_text
+        valid_ns = set(evidence_text) or {s.n for s in self.sources.values()}
+        if not is_answer and self._deep_report(outline, len(evidence_text)):
+            from ..core.tracelog import trace
+
+            trace("write", f"分章撰写：{len(outline)} 章 + 综合分析", sections=outline)
+            # 分章撰写：每章证据单独给出；综合分析章用较短的全量证据（时间轴、关键数字）；
+            # 引用范围与核对依据是全部有证据的来源（各章可能引用单次撰写预算之外的来源）
+            _, evidence_text, best_quote = self._writer_evidence(verified, 10**9)
+            evidence_block = self._writer_evidence(verified, 24000)[0]
+            draft, used, charts = await report_writer.write_sectioned(
+                question=question, sections=outline, section_evidence=self._section_evidence(verified, outline),
+                audience=report.audience if report else None, evidence_block=evidence_block,
+                valid_ns=set(evidence_text) or valid_ns, analysis_block=analysis_block,
+                conflicts_block=conflicts_block, gaps_block="\n".join(gaps), ctx=c,
+                today=utcnow().strftime("%Y-%m-%d"), evidence_by_n=evidence_text, on_partial=on_partial)
+        else:
+            draft, used, charts = await report_writer.write(
+                kind="answer" if is_answer else "report", question=question,
+                outline=outline, audience=report.audience if report else None,
+                evidence_block=evidence_block, valid_ns=valid_ns,
+                analysis_block=analysis_block, conflicts_block=conflicts_block, gaps_block="\n".join(gaps), ctx=c,
+                today=utcnow().strftime("%Y-%m-%d"), evidence_by_n=evidence_text, on_partial=on_partial)
         title = draft.title or self.spec.title
         full_md = report_writer.assemble_markdown(draft, charts, include_title=True, with_highlights=True)
         if is_answer:
@@ -1000,8 +1038,9 @@ class Pipeline:
 
         mode_label = {"quick_search": "搜索结果", "research": "研究报告", "hybrid": "数据分析报告"}.get(
             self.spec.mode, "报告")
-        meta = (f"{mode_label} · 生成于 {utcnow().strftime('%Y-%m-%d %H:%M')} UTC · 引用来源 {len(sources)} 个 · "
-                f"机器核验，未经人工审核")
+        latest = latest_date([s.get("publish_time_text") for s in sources])
+        meta = (f"{mode_label} · 生成于 {utcnow().strftime('%Y-%m-%d %H:%M')} UTC · 引用来源 {len(sources)} 个"
+                f"{f' · 资料截至 {latest}' if latest else ''} · 机器核验，未经人工审核")
         files = await report_render.build_report_bundle(title=title, markdown=markdown, sources=sources,
                                                         meta_line=meta)
         base = re.sub(r"[\\/:*?\"<>|\s]+", "_", title)[:60] or "report"
@@ -1014,6 +1053,24 @@ class Pipeline:
                 rows.append(a)
                 formats.append({"format": fmt, "artifact_id": a.artifact_id, "byte_qty": a.byte_qty})
         return {"rows": rows, "part": {"primary": rows[0].artifact_id, "formats": formats}}
+
+
+_DATE = re.compile(r"(20\d{2}|19\d{2})\s*[-/.年]\s*(\d{1,2})(?:\s*[-/.月]\s*(\d{1,2}))?")
+
+
+def latest_date(texts: list[str | None]) -> str | None:
+    """来源发布时间里最晚的日期（YYYY-MM-DD 或 YYYY-MM），用于报告抬头“资料截至”。不晚于今天。"""
+    today = utcnow().strftime("%Y-%m-%d")
+    best: tuple[int, int, int] | None = None
+    for t in texts:
+        for y, mo, d in _DATE.findall(t or ""):
+            key = (int(y), int(mo), int(d or 0))
+            if not (1 <= key[1] <= 12) or f"{key[0]:04d}-{key[1]:02d}-{max(key[2], 1):02d}" > today:
+                continue
+            best = max(best, key) if best else key
+    if not best:
+        return None
+    return f"{best[0]}-{best[1]:02d}" + (f"-{best[2]:02d}" if best[2] else "")
 
 
 def task_stages_from_spec(spec: TaskSpec) -> list[str]:

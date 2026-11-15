@@ -6,6 +6,7 @@ import { fileIdFromUrl } from '@/lib/fileTypes'
 import { renderMarkdown, splitCharts } from '@/lib/markdown'
 import { usePanelStore } from '@/stores/panel'
 import ChartBlock from './ChartBlock.vue'
+import TimelineBlock from './TimelineBlock.vue'
 
 const props = defineProps<{ part: TextPart; taskId?: string | null; streaming?: boolean }>()
 const panel = usePanelStore()
@@ -85,7 +86,8 @@ function onClick(e: MouseEvent) {
     <template v-for="(s, i) in segments" :key="i">
       <!-- eslint-disable-next-line vue/no-v-html -- 已经过 markdown-it(html:false)+DOMPurify 净化 -->
       <div v-if="s.kind === 'md'" v-html="(s as { html: string }).html" />
-      <ChartBlock v-else :raw="s.raw" />
+      <TimelineBlock v-else-if="s.kind === 'timeline'" :raw="s.raw" :fig="s.fig" />
+      <ChartBlock v-else-if="s.kind === 'chart'" :raw="s.raw" :fig="s.fig" />
     </template>
   </div>
   <CitePreview

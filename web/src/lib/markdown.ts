@@ -8,20 +8,37 @@ const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
 md.renderer.rules.table_open = () => '<div class="table-wrap"><table>\n'
 md.renderer.rules.table_close = () => '</table></div>\n'
 
-export type MdSegment = { kind: 'md'; text: string } | { kind: 'chart'; raw: string }
+export type MdSegment =
+  | { kind: 'md'; text: string }
+  | { kind: 'chart' | 'timeline'; raw: string; /** 图序号（图1、图2…，图表与时间轴统一编号） */ fig: number }
 
-/** 把 ```chart 代码块拆出来单独渲染为图表，其余部分按 Markdown 渲染 */
+/** 把 ```chart / ```timeline 代码块拆出来单独渲染（图表、时间轴），其余部分按 Markdown 渲染 */
 export function splitCharts(text: string): MdSegment[] {
   const out: MdSegment[] = []
-  const re = /^```chart[^\n]*\n([\s\S]*?)^```[ \t]*$/gm
+  const re = /^```(chart|timeline)[^\n]*\n([\s\S]*?)^```[ \t]*$/gm
   let last = 0
+  let fig = 0
   for (let m = re.exec(text); m; m = re.exec(text)) {
     if (m.index > last) out.push({ kind: 'md', text: text.slice(last, m.index) })
-    out.push({ kind: 'chart', raw: m[1] })
+    out.push({ kind: m[1] as 'chart' | 'timeline', raw: m[2], fig: ++fig })
     last = m.index + m[0].length
   }
   if (last < text.length) out.push({ kind: 'md', text: text.slice(last) })
-  return out.filter((s) => s.kind === 'chart' || s.text.trim())
+  return out.filter((s) => s.kind !== 'md' || s.text.trim())
+}
+
+export interface TimelineSpec {
+  title?: string
+  items: { date: string; title: string; detail?: string | null; source_n?: number | null }[]
+}
+
+export function parseTimeline(raw: string): TimelineSpec | null {
+  try {
+    const t = JSON.parse(raw) as TimelineSpec
+    return t && Array.isArray(t.items) && t.items.length ? t : null
+  } catch {
+    return null
+  }
 }
 
 DOMPurify.addHook('afterSanitizeAttributes', (node) => {
