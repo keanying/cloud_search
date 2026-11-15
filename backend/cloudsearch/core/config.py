@@ -210,6 +210,8 @@ class Settings(BaseSettings):
     task_max_llm_requests: int = 60
     # 研究类任务“反思→补查”的最多轮数（数据任务最多 1 轮；简答不补查）
     task_max_extra_waves: int = 2
+    # 深度报告：研究/混合任务、提纲 3-8 章且来源≥6 个时分章撰写（每章单独调用一次模型，再写综合分析）
+    task_deep_report: bool = True
 
     # 日志：logs/app.log（全局）、logs/tasks/<task_id>.log（每个任务的执行日志，可在页面下载）
     logs_dir: Path = Path("logs")

@@ -169,8 +169,11 @@ class FakeLLM:
             "verifier": lambda p: {"conflicts": [], "unsupported": []},
             "analyst": lambda p: {"analyses": [{"title": "数量", "description": "记录数",
                                                 "metrics": [{"func": "count", "alias": "数量"}]}]},
-            "report_writer": lambda p: {"title": "故宫开放时间", "markdown": self.writer_markdown, "limitations": [],
-                                        **self.writer_extra},
+            "report_writer": lambda p: ({"heading": "章节" + p.split("本章要回答：", 1)[1].split("\n", 1)[0][:10],
+                                         "markdown": "### 小节\n\n" + self.writer_markdown}
+                                        if "本章要回答：" in p else
+                                        {"title": "故宫开放时间", "markdown": self.writer_markdown, "limitations": [],
+                                         **self.writer_extra}),
         }
         for role, b in roles.items():
             # 每次调用时再构建模型：测试中途修改的开关（如 stream_writer）也能生效

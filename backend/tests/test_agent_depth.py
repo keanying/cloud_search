@@ -192,3 +192,75 @@ async def test_clarification_offers_options(client, fake_llm, fake_browser):
                                 "options": ["5 小时以内", "10 小时左右", "20 小时以上"]}
     assert part["items"][1]["multi"] is True
     assert part["items"][1]["options"] == ["线上兼职", "技能接单", "内容变现", "小生意", "电商"]
+
+
+async def test_sectioned_report_chapters_timeline_and_checks(monkeypatch):
+    """深度报告：逐章撰写（中文编号、各章图表编号不冲突）、综合分析章、时间轴按证据核对年份、无效引用被清理。"""
+    from cloudsearch.agents.report_writer import agent as rw
+    from cloudsearch.agents.report_writer.schemas import (ChartSeries, ChartSpec, ReportDraft, SectionDraft,
+                                                          TimelineItem)
+
+    prompts: list[str] = []
+    partials: list[str] = []
+
+    async def fake_run(spec, prompt, ctx=None, on_partial=None, **kw):
+        prompts.append(prompt)
+        if spec is rw.SECTION_SPEC:
+            i = int(prompt.split("编号为“")[1][0] == "二")  # 0 → 第一章，1 → 第二章
+            if on_partial:
+                await on_partial(SectionDraft(heading=f"阶段{i + 1}", markdown="写作中…"))
+            chart = ChartSpec(id="c1", type="bar", title=f"图{i}", categories=["a", "b"],
+                              series=[ChartSeries(name="x", values=[15.3, 26.2] if i == 0 else [99.0, 1.0])])
+            return SectionDraft(heading=f"阶段{i + 1}：年代", markdown=f"### 小节\n\n事实一[1]，事实二[9]。\n\n[[chart:c1]]",
+                                charts=[chart])
+        assert "## 三、综合分析" in prompt and "## 一、阶段1：年代" in prompt and "## 二、阶段2：年代" in prompt
+        return ReportDraft(title="发展史", summary="摘要[2]", key_points=["要点[1]"],
+                           markdown="### 主线\n\n综合判断[2]。",
+                           timeline=[TimelineItem(date="2012", title="AlexNet", source_n=1),
+                                     TimelineItem(date="1956年", title="达特茅斯会议", source_n=2),
+                                     TimelineItem(date="2030", title="编造的事件", source_n=1)],
+                           limitations=[], follow_ups=["后续？"])
+
+    monkeypatch.setattr(rw, "run_agent", fake_run)
+
+    async def on_partial(d):
+        partials.append(d.markdown)
+
+    evidence_by_n = {1: "2012 年 AlexNet 的 top-5 错误率为 15.3%，第二名为 26.2%", 2: "1956 年举行达特茅斯研究项目"}
+    draft, used, charts = await rw.write_sectioned(
+        question="AI 发展史", sections=["早期探索", "深度学习"], section_evidence=["[1] …", "[2] …"],
+        audience=None, evidence_block="\n".join(evidence_by_n.values()), valid_ns={1, 2}, analysis_block="",
+        conflicts_block="", gaps_block="", ctx=None, today="2026-11-15", evidence_by_n=evidence_by_n,
+        on_partial=on_partial)
+    md = draft.markdown
+    assert md.index("## 一、阶段1：年代") < md.index("## 二、阶段2：年代") < md.index("## 三、综合分析")
+    assert "[9]" not in md and "事实二。" in md  # 不存在的来源序号被删除
+    assert [c.id for c in charts] == ["s1_c1"]  # 第二章图表数字核对不上被删除，编号带章前缀
+    assert "[[chart:s1_c1]]" in md
+    assert [t.title for t in draft.timeline] == ["达特茅斯会议", "AlexNet"]  # 2030 不在证据里，按年份排序
+    assert used == [1, 2] and partials and "写作中" in partials[0]
+    full = rw.assemble_markdown(draft, charts, include_title=True)
+    assert "```timeline" in full and full.index("```timeline") < full.index("## 一、")
+
+
+async def test_research_task_writes_chapters(client, fake_llm, fake_browser, monkeypatch):
+    """研究任务走分章撰写：每个子问题一章（中文编号）+ 综合分析，报告文件包含全部章节。"""
+    from cloudsearch.orchestrator import pipeline
+
+    monkeypatch.setattr(pipeline.Pipeline, "_deep_report", lambda self, sections, n: True)
+    fake_llm.plan_output = {**fake_llm.plan_output, "sub_questions": ["开放时间", "票价", "预约方式"]}
+    h = await register(client)
+    fake_llm.compiler_outputs.append(quick_task_output(mode="research"))
+    cid = (await client.post("/api/v1/conversations", json={}, headers=h)).json()["conversation_id"]
+    await client.post(f"/api/v1/conversations/{cid}/messages", headers=h,
+                      json={"client_message_id": str(uuid.uuid4()), "text": "研究一下故宫开放规则"})
+    await run_worker()
+    task = (await client.get(f"/api/v1/conversations/{cid}/tasks", headers=h)).json()[0]
+    assert task["task_status"] == "completed", task
+    writer_prompts = fake_llm.prompts["report_writer"]
+    assert sum("本章要回答：" in p for p in writer_prompts) == 3 and "已写好的各章正文" in writer_prompts[-1]
+    arts = (await client.get("/api/v1/artifacts", headers=h)).json()
+    md_art = next(a for a in arts if a["display_name"].endswith(".md"))
+    text = (await client.get(f"/api/v1/artifacts/{md_art['artifact_id']}/download", headers=h)).text
+    for heading in ("## 一、章节开放时间", "## 二、章节票价", "## 三、章节预约方式", "## 四、综合分析"):
+        assert heading in text, heading

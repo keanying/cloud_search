@@ -4,7 +4,7 @@ import { BarChart3 } from 'lucide-vue-next'
 import { buildOption, loadECharts, parseChartSpec } from '@/lib/charts'
 import { usePrefsStore } from '@/stores/prefs'
 
-const props = defineProps<{ raw: string }>()
+const props = defineProps<{ raw: string; /** 图序号：显示为“图n｜标题” */ fig?: number }>()
 const prefs = usePrefsStore()
 const spec = computed(() => parseChartSpec(props.raw))
 const el = ref<HTMLElement | null>(null)
@@ -20,7 +20,7 @@ async function render() {
     if (!el.value) return
     chart?.dispose()
     chart = echarts.init(el.value, undefined, { renderer: 'canvas' })
-    chart.setOption(buildOption(spec.value, prefs.theme === 'dark'))
+    chart.setOption(buildOption(spec.value, prefs.theme === 'dark', { showTitle: false })) // 标题在图注里
   } catch {
     failed.value = true
   }
@@ -43,8 +43,9 @@ onBeforeUnmount(() => {
 <template>
   <figure v-if="spec && !failed" class="cs-chart surface not-prose overflow-hidden rounded-xl p-3">
     <div ref="el" class="h-[300px] w-full" role="img" :aria-label="`图表：${spec.title}`" />
-    <figcaption v-if="spec.source" class="mt-1 flex items-center gap-1 text-[11px] text-slate-400">
-      <BarChart3 class="h-3 w-3" /> 数据来源：{{ spec.source }}
+    <figcaption class="mt-1 flex items-center justify-center gap-1 text-[12px] text-slate-400">
+      <BarChart3 class="h-3 w-3 shrink-0" />
+      <span><template v-if="fig">图{{ fig }}｜</template>{{ spec.title }}<template v-if="spec.source">。数据来源：{{ spec.source }}</template></span>
     </figcaption>
   </figure>
   <pre v-else class="cs-chart overflow-x-auto rounded-xl p-3 text-xs"><code>{{ raw }}</code></pre>

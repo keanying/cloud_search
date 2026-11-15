@@ -42,7 +42,7 @@ export async function loadECharts() {
 const PALETTE = ['#5b5cf6', '#38bdf8', '#f0577a', '#22b07d', '#f5a524', '#a78bfa', '#ec4899', '#8a8eaa']
 const PALETTE_DARK = ['#8385ff', '#7dd3fc', '#ff8fa6', '#5fdba8', '#fbc65a', '#c4b5fd', '#f9a8d4', '#a3a7c2']
 
-export function buildOption(spec: ChartSpec, dark: boolean) {
+export function buildOption(spec: ChartSpec, dark: boolean, opts: { showTitle?: boolean } = {}) {
   const text = dark ? '#d2d5e6' : '#33364d'
   const muted = dark ? '#7d81a0' : '#8a8eaa'
   const line = dark ? 'rgba(255,255,255,.08)' : 'rgba(30,35,80,.08)'
@@ -52,7 +52,7 @@ export function buildOption(spec: ChartSpec, dark: boolean) {
     color: dark ? PALETTE_DARK : PALETTE,
     backgroundColor: 'transparent',
     textStyle: { color: text, fontFamily: 'inherit' },
-    title: { text: spec.title, left: 'center', top: 4, textStyle: { color: text, fontSize: 14, fontWeight: 600 } },
+    title: { show: opts.showTitle !== false, text: spec.title, left: 'center', top: 4, textStyle: { color: text, fontSize: 14, fontWeight: 600 } },
     tooltip: { trigger: spec.type === 'pie' ? 'item' : 'axis', valueFormatter: fmt },
     legend: { show: spec.series.length > 1 || spec.type === 'pie', bottom: 0, textStyle: { color: text } },
   }
@@ -69,7 +69,7 @@ export function buildOption(spec: ChartSpec, dark: boolean) {
   }
   return {
     ...base,
-    grid: { left: 12, right: 16, top: 44, bottom: spec.series.length > 1 ? 36 : 12, containLabel: true },
+    grid: { left: 12, right: 16, top: opts.showTitle === false ? 24 : 44, bottom: spec.series.length > 1 ? 36 : 12, containLabel: true },
     xAxis: { type: 'category', data: spec.categories, axisLine: { lineStyle: { color: line } }, axisLabel: { color: muted, interval: 0, hideOverlap: true } },
     yAxis: { type: 'value', name: spec.unit ?? '', nameTextStyle: { color: muted }, splitLine: { lineStyle: { color: line } }, axisLabel: { color: muted } },
     series: spec.series.map((s) => ({

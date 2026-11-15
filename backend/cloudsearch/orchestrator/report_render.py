@@ -25,10 +25,10 @@ _CITE = re.compile(r"\[(\d{1,3})\]")
 
 # ---------------------------------------------------------------- SVG 图表
 def _fmt(v: float) -> str:
-    return f"{v:,.0f}" if abs(v) >= 100 or float(v).is_integer() else f"{v:,.2f}"
+    return f"{v:,.0f}" if abs(v) >= 100 or float(v).is_integer() else f"{v:,.2f}".rstrip("0").rstrip(".")
 
 
-def svg_chart(c: dict[str, Any], width: int = 720, height: int = 360) -> str:
+def svg_chart(c: dict[str, Any], width: int = 720, height: int = 360, *, show_title: bool = True) -> str:
     """bar / line / pie → 自包含 SVG（不依赖脚本，可直接嵌入 HTML/打印/转图片）。"""
     title = _html.escape(c.get("title") or "")
     unit = c.get("unit") or ""
@@ -38,8 +38,8 @@ def svg_chart(c: dict[str, Any], width: int = 720, height: int = 360) -> str:
     out = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" width="{width}" '
            f'height="{height}" font-family="{FONT}" font-size="12">',
            f'<rect width="{width}" height="{height}" fill="#ffffff"/>',
-           f'<text x="{width / 2}" y="24" text-anchor="middle" font-size="15" font-weight="600" fill="#1e293b">'
-           f'{title}</text>']
+           (f'<text x="{width / 2}" y="24" text-anchor="middle" font-size="15" font-weight="600" fill="#1e293b">'
+            f'{title}</text>' if show_title else "")]
     if t == "pie":
         vals = [max(0.0, float(v or 0)) for v in (series[0]["values"] if series else [])]
         total = sum(vals) or 1.0
@@ -126,6 +126,33 @@ def svg_chart(c: dict[str, Any], width: int = 720, height: int = 360) -> str:
     return "".join(out)
 
 
+def parse_timeline(info: str, content: str) -> dict | None:
+    if info.strip() != "timeline":
+        return None
+    try:
+        t = json.loads(content)
+        return t if isinstance(t, dict) and isinstance(t.get("items"), list) and t["items"] else None
+    except json.JSONDecodeError:
+        return None
+
+
+def caption_text(no: int, title: str, source: str | None = None) -> str:
+    """图注：图n｜标题。数据来源：…"""
+    cap = f"图{no}｜{title}".rstrip("｜")
+    return cap + (f"。数据来源：{source}" if source else "")
+
+
+def timeline_html(t: dict, no: int) -> str:
+    rows = "".join(
+        f'<li><span class="tl-date">{_html.escape(str(it.get("date", "")))}</span>'
+        f'<span class="tl-dot"></span><span class="tl-body"><b>{_html.escape(str(it.get("title", "")))}</b>'
+        f'{("　" + _html.escape(str(it["detail"]))) if it.get("detail") else ""}'
+        f'{f" [{int(it["source_n"])}]" if it.get("source_n") else ""}</span></li>'
+        for it in t["items"])
+    cap = _html.escape(caption_text(no, t.get("title") or "关键时间节点"))
+    return f'<figure class="timeline"><ol>{rows}</ol><figcaption>{cap}</figcaption></figure>'
+
+
 def parse_chart(info: str, content: str) -> dict | None:
     if info.strip() != "chart":
         return None
@@ -143,8 +170,13 @@ CSS = """
 body { margin: 0; background: #f6f7fb; color: #1e293b; font: 15px/1.75 %(font)s; }
 .doc { max-width: 860px; margin: 32px auto; background: #fff; padding: 48px 56px; border-radius: 14px;
        box-shadow: 0 10px 30px rgba(15,23,42,.06); }
-h1 { font-size: 26px; line-height: 1.35; margin: 0 0 6px; color: #0f172a; }
-.meta { color: #64748b; font-size: 13px; margin-bottom: 24px; border-bottom: 1px solid #e2e8f0; padding-bottom: 14px; }
+.cover { margin: -48px -56px 28px; padding: 40px 56px 26px; border-radius: 14px 14px 0 0;
+         background: linear-gradient(120deg, #fde7f6 0%%, #e7e2ff 32%%, #dcefff 66%%, #e2f8ee 100%%);
+         border-bottom: 1px solid #e2e8f0; }
+.cover .kicker { font-size: 12px; letter-spacing: .12em; color: #6366f1; font-weight: 700; margin-bottom: 8px; }
+h1 { font-size: 28px; line-height: 1.35; margin: 0 0 10px; color: #0f172a; letter-spacing: -.01em; }
+.meta { color: #475569; font-size: 13px; }
+p { text-align: justify; }
 h2 { font-size: 20px; margin: 30px 0 10px; padding-left: 10px; border-left: 4px solid #6366f1; color: #0f172a; }
 h3 { font-size: 17px; margin: 22px 0 8px; color: #1e293b; }
 p { margin: 8px 0; }
@@ -161,7 +193,19 @@ code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 13p
 pre { background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 8px; overflow-x: auto; }
 figure.chart { margin: 18px 0; text-align: center; }
 figure.chart svg { max-width: 100%%; height: auto; border: 1px solid #eef2f7; border-radius: 10px; }
-figure.chart figcaption { color: #64748b; font-size: 12px; margin-top: 6px; }
+figure.chart figcaption, figure.timeline figcaption { color: #64748b; font-size: 12.5px; margin-top: 8px;
+  font-style: italic; text-align: center; }
+figure { break-inside: avoid; }
+figure.timeline { margin: 20px 0; padding: 16px 18px 12px; border: 1px solid #eef2f7; border-radius: 12px; background: #fbfcfe; }
+figure.timeline ol { list-style: none; margin: 0; padding: 0; position: relative; }
+figure.timeline ol::before { content: ""; position: absolute; left: 104px; top: 6px; bottom: 6px; width: 2px;
+  background: linear-gradient(#a5b4fc, #c4b5fd); }
+figure.timeline li { display: flex; gap: 14px; align-items: baseline; margin: 0 0 10px; font-size: 14px; }
+.tl-date { width: 92px; flex: none; text-align: right; color: #4f46e5; font-weight: 700; font-variant-numeric: tabular-nums; }
+.tl-dot { width: 10px; height: 10px; flex: none; border-radius: 50%%; background: #6366f1; box-shadow: 0 0 0 3px #e0e7ff;
+  position: relative; top: 1px; }
+.tl-body { color: #334155; }
+.tl-body b { color: #0f172a; }
 sup.cite a { color: #6366f1; text-decoration: none; font-size: 11px; margin-left: 1px; }
 .refs { margin-top: 36px; border-top: 1px solid #e2e8f0; padding-top: 12px; font-size: 13px; color: #475569; }
 .refs li { margin: 6px 0; word-break: break-all; }
@@ -174,7 +218,8 @@ sup.cite a { color: #6366f1; text-decoration: none; font-size: 11px; margin-left
 .stat sup.cite a { font-size: 11px; }
 .toc { margin: 4px 0 26px; padding: 12px 16px; border: 1px dashed #cbd5e1; border-radius: 10px; font-size: 14px; }
 .toc b { display: block; color: #64748b; font-size: 12px; letter-spacing: .08em; margin-bottom: 4px; }
-.toc ol { margin: 0; padding-left: 1.3em; columns: 2; column-gap: 28px; }
+.toc ol { margin: 0; padding-left: 0; list-style: none; columns: 2; column-gap: 28px; }
+.toc li { margin: 2px 0; }
 .toc a { color: #334155; text-decoration: none; }
 .cred { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 999px; background: #eef2ff;
         color: #4338ca; margin-left: 4px; }
@@ -190,11 +235,16 @@ def _md() -> MarkdownIt:
 
     def fence(renderer, tokens, idx, options, env):
         tok = tokens[idx]
+        tl = parse_timeline(tok.info, tok.content)
+        if tl is not None:
+            env["fig"] = env.get("fig", 0) + 1
+            return timeline_html(tl, env["fig"])
         chart = parse_chart(tok.info, tok.content)
         if chart is None:
             return f"<pre><code>{_html.escape(tok.content)}</code></pre>"
-        cap = f"数据来源：{_html.escape(chart['source'])}" if chart.get("source") else ""
-        return f'<figure class="chart">{svg_chart(chart)}<figcaption>{cap}</figcaption></figure>'
+        env["fig"] = env.get("fig", 0) + 1
+        cap = _html.escape(caption_text(env["fig"], chart.get("title") or "", chart.get("source")))
+        return f'<figure class="chart">{svg_chart(chart, show_title=False)}<figcaption>{cap}</figcaption></figure>'
 
     md.add_render_rule("fence", fence)
     return md
@@ -242,7 +292,7 @@ def _cred_badge(src: dict) -> str:
 
 def render_html(*, title: str, markdown: str, sources: list[dict], meta_line: str) -> str:
     body_md = re.sub(r"^#\s+.*\n", "", markdown, count=1) if markdown.lstrip().startswith("# ") else markdown
-    body = _toc(_stat_tiles(_md().render(body_md)))
+    body = _toc(_stat_tiles(_md().render(body_md, {})))
     body = _CITE.sub(lambda m: f'<sup class="cite"><a href="#ref-{m.group(1)}">[{m.group(1)}]</a></sup>', body)
     refs = ""
     if sources:
@@ -257,7 +307,8 @@ def render_html(*, title: str, markdown: str, sources: list[dict], meta_line: st
     return (f'<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">'
             f'<meta name="viewport" content="width=device-width,initial-scale=1">'
             f"<title>{_html.escape(title)}</title><style>{CSS}</style></head><body><main class=\"doc\">"
-            f"<h1>{_html.escape(title)}</h1><div class=\"meta\">{_html.escape(meta_line)}</div>{body}{refs}"
+            f'<header class="cover"><div class="kicker">云搜浏览器 · 研究报告</div><h1>{_html.escape(title)}</h1>'
+            f'<div class="meta">{_html.escape(meta_line)}</div></header>{body}{refs}'
             f'<div class="footer">由云搜浏览器生成 · 内容均来自实际读取的网页并标注来源 · 机器核验，未经人工审核</div>'
             f"</main></body></html>")
 
@@ -304,7 +355,7 @@ async def render_chart_pngs(charts: list[dict]) -> list[bytes | None]:
     async def fn(page):
         out = []
         for c in charts:
-            await page.set_content(f"<html><body style='margin:0'>{svg_chart(c)}</body></html>")
+            await page.set_content(f"<html><body style='margin:0'>{svg_chart(c, show_title=False)}</body></html>")
             out.append(await page.locator("svg").first.screenshot(type="png"))
         return out
 
@@ -341,6 +392,7 @@ def render_docx(*, title: str, markdown: str, sources: list[dict], meta_line: st
     body_md = re.sub(r"^#\s+.*\n", "", markdown, count=1) if markdown.lstrip().startswith("# ") else markdown
     tokens = MarkdownIt("commonmark").enable("table").parse(body_md)
     chart_iter = iter(chart_pngs)
+    fig_no = 0
 
     def add_inline(par, inline_tok):
         bold = italic = False
@@ -392,9 +444,20 @@ def render_docx(*, title: str, markdown: str, sources: list[dict], meta_line: st
             add_inline(p, tokens[i + 1])
             i += 3
             continue
+        elif tok.type == "fence" and parse_timeline(tok.info, tok.content) is not None:
+            tl = parse_timeline(tok.info, tok.content)
+            fig_no += 1
+            _docx_table(doc, ["时间", "事件", "来源"],
+                        [[str(it.get("date", "")), str(it.get("title", "")) + (f"：{it['detail']}" if it.get("detail") else ""),
+                          f"[{it['source_n']}]" if it.get("source_n") else ""] for it in tl["items"]])
+            cap = doc.add_paragraph(caption_text(fig_no, tl.get("title") or "关键时间节点"))
+            cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            cap.runs[0].font.size = Pt(9)
+            cap.runs[0].italic = True
         elif tok.type == "fence":
             chart = parse_chart(tok.info, tok.content)
             if chart is not None:
+                fig_no += 1
                 png = next(chart_iter, None)
                 if png:
                     doc.add_picture(io.BytesIO(png), width=Cm(15.5))
@@ -404,10 +467,10 @@ def render_docx(*, title: str, markdown: str, sources: list[dict], meta_line: st
                     _docx_table(doc, ["类别"] + [s["name"] for s in chart["series"]],
                                 [[cat] + [("" if s["values"][j] is None else _fmt(float(s["values"][j])))
                                           for s in chart["series"]] for j, cat in enumerate(chart["categories"])])
-                if chart.get("source"):
-                    cap = doc.add_paragraph(f"数据来源：{chart['source']}")
-                    cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                    cap.runs[0].font.size = Pt(8.5)
+                cap = doc.add_paragraph(caption_text(fig_no, chart.get("title") or "", chart.get("source")))
+                cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                cap.runs[0].font.size = Pt(9)
+                cap.runs[0].italic = True
             else:
                 p = doc.add_paragraph(tok.content)
                 for r in p.runs:
@@ -485,11 +548,25 @@ async def build_report_bundle(*, title: str, markdown: str, sources: list[dict],
     return out
 
 
+_TL_FENCE = re.compile(r"^```timeline[^\n]*\n(.*?)^```[ \t]*$", re.S | re.M)
+
+
+def _timeline_table(m: re.Match) -> str:
+    t = parse_timeline("timeline", m.group(1))
+    if t is None:
+        return m.group(0)
+    rows = "\n".join(f"| {it.get('date', '')} | {it.get('title', '')}{('：' + it['detail']) if it.get('detail') else ''} | "
+                     f"{('[' + str(it['source_n']) + ']') if it.get('source_n') else ''} |" for it in t["items"])
+    return f"**{t.get('title') or '关键时间节点'}**\n\n| 时间 | 事件 | 来源 |\n|---|---|---|\n{rows}"
+
+
 def _md_with_refs(markdown: str, sources: list[dict]) -> str:
+    markdown = _TL_FENCE.sub(_timeline_table, markdown)  # Markdown 下载：时间轴写成表格，便于阅读
     if not sources:
         return markdown
     lines = ["", "## 参考来源", ""]
     for s in sources:
-        pub = f"，发布 {s['publish_time_text']}" if s.get("publish_time_text") else ""
-        lines.append(f"[{s['n']}] {s.get('title') or s['url']} — {s['url']}{pub}")
+        site = f"{s['site_name']} — " if s.get("site_name") else ""
+        pub = f"，{s['publish_time_text']}" if s.get("publish_time_text") else ""
+        lines.append(f"{s['n']}. {site}{s.get('title') or s['url']}{pub}　<{s['url']}>")
     return markdown.rstrip() + "\n" + "\n".join(lines) + "\n"
