@@ -10,17 +10,17 @@ md.renderer.rules.table_close = () => '</table></div>\n'
 
 export type MdSegment =
   | { kind: 'md'; text: string }
-  | { kind: 'chart' | 'timeline'; raw: string; /** 图序号（图1、图2…，图表与时间轴统一编号） */ fig: number }
+  | { kind: 'chart' | 'timeline' | 'figure' | 'photo'; raw: string; /** 图序号（图1、图2…，所有图统一编号） */ fig: number }
 
 /** 把 ```chart / ```timeline 代码块拆出来单独渲染（图表、时间轴），其余部分按 Markdown 渲染 */
 export function splitCharts(text: string): MdSegment[] {
   const out: MdSegment[] = []
-  const re = /^```(chart|timeline)[^\n]*\n([\s\S]*?)^```[ \t]*$/gm
+  const re = /^```(chart|timeline|figure|photo)[^\n]*\n([\s\S]*?)^```[ \t]*$/gm
   let last = 0
   let fig = 0
   for (let m = re.exec(text); m; m = re.exec(text)) {
     if (m.index > last) out.push({ kind: 'md', text: text.slice(last, m.index) })
-    out.push({ kind: m[1] as 'chart' | 'timeline', raw: m[2], fig: ++fig })
+    out.push({ kind: m[1] as 'chart' | 'timeline' | 'figure' | 'photo', raw: m[2], fig: ++fig })
     last = m.index + m[0].length
   }
   if (last < text.length) out.push({ kind: 'md', text: text.slice(last) })
@@ -30,6 +30,17 @@ export function splitCharts(text: string): MdSegment[] {
 export interface TimelineSpec {
   title?: string
   items: { date: string; title: string; detail?: string | null; source_n?: number | null }[]
+}
+
+/** 图注里的 [n] 转成可点击的引用编号（与正文一致，点击/悬停查看来源） */
+export function captionHtml(text: string): string {
+  const esc = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  return esc.replace(/\[(\d{1,3})\]/g, (_, n) => `<button type="button" class="cite-chip" data-cite="${n}" aria-label="查看来源 ${n}">${n}</button>`)
+}
+
+/** 报告配图里的 SVG（服务端生成）：只保留 SVG 元素，去掉脚本与事件属性 */
+export function sanitizeSvg(svg: string): string {
+  return DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true, svgFilters: true } })
 }
 
 export function parseTimeline(raw: string): TimelineSpec | null {

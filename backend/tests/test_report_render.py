@@ -61,7 +61,7 @@ async def test_bundle_formats_and_content():
     if resolve()["mode"] in ("missing", "error"):
         pytest.skip("无浏览器：PDF 与图表图片跳过")
     assert files["pdf"][:4] == b"%PDF" and len(files["pdf"]) > 10_000
-    assert len(doc.inline_shapes) == 1  # 图表已作为图片嵌入 Word
+    assert len(doc.inline_shapes) == 2  # 封面横幅 + 图表（作为图片嵌入 Word）
 
 
 def test_svg_chart_types():
@@ -82,3 +82,67 @@ def test_html_stat_tiles_toc_and_credibility():
     assert '<div class="stats">' in h and '<span class="u">万人次</span>' in h and "<table>" not in h
     assert h.index('<nav class="toc">') > h.index('<div class="stats">')
     assert '<h2 id="sec-3">' in h and 'class="cred official">官方' in h
+
+
+async def test_report_figures_stages_diagram_photo(monkeypatch):
+    """配图：阶段总览图（里程碑年份需在证据中）、结构示意图、来源配图（下载后内嵌）；三种导出都带图并统一编号。"""
+    import io
+
+    from cloudsearch.agents.report_writer import DiagramSpec, PhotoRef, ReportDraft, StageItem, assemble_markdown
+    from cloudsearch.agents.report_writer.agent import finalize
+    from cloudsearch.agents.report_writer.schemas import DiagramLayer
+    from cloudsearch.orchestrator import figure_assets, report_render
+
+    import base64
+
+    png = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+
+    async def fake_fetch(url):
+        return (png, "image/png", "png") if "shakey" in url else None
+
+    monkeypatch.setattr(figure_assets, "fetch_image", fake_fetch)
+    stored = {}
+
+    class Store:
+        async def put(self, ref, data):
+            stored[ref] = data
+            return ref, "h"
+
+    monkeypatch.setattr(figure_assets, "get_storage", lambda: Store())
+    ev = {1: "1950 年图灵发表论文；1956 年举行达特茅斯研究项目", 2: "1980 年 XCON 进入制造流程", 3: "2012 年 AlexNet"}
+    images = {"2-1": {"url": "https://www.sri.com/shakey.jpg", "caption": "Shakey 机器人", "n": 2, "site": "SRI"},
+              "3-1": {"url": "https://x.org/missing.jpg", "caption": "x", "n": 3, "site": "X"}}
+    draft = ReportDraft(
+        title="AI 发展史", summary="摘要[1]", markdown="## 一、早期\n\n正文[1]。\n\n[[photo:2-1]]\n\n[[diagram:d1]]\n\n[[photo:3-1]]",
+        stages=[StageItem(period="1950年代", title="早期探索", milestones=["1956 达特茅斯研究项目", "1999 编造事件"], source_ns=[1]),
+                StageItem(period="1980年代", title="专家系统", milestones=["1980 XCON进入制造流程"], source_ns=[2]),
+                StageItem(period="2010年代", title="深度学习", milestones=["2012 AlexNet"], source_ns=[3])],
+        stages_title="AI 发展的三个阶段",
+        diagrams=[DiagramSpec(id="d1", title="知识获取方式如何变化？", source_ns=[1],
+                              layers=[DiagramLayer(name="显式知识", nodes=["规则", "推理"]),
+                                      DiagramLayer(name="统计学习", nodes=["样本", "模型"])],
+                              links=["", "减少逐条获取知识的成本"]),
+                  DiagramSpec(id="d2", title="没有依据的图", source_ns=[99],
+                              layers=[DiagramLayer(name="a", nodes=["b"]), DiagramLayer(name="c", nodes=["d"])])],
+        photos=[PhotoRef(image_id="img:2-1", caption="Shakey 与受控实验环境"), PhotoRef(image_id="9-9", caption="编造")])
+    draft, used, charts = finalize(draft, valid_ns={1, 2, 3}, evidence_block="", analysis_block="",
+                                   evidence_by_n=ev, images=images)
+    assert [st.milestones for st in draft.stages][0] == ["1956 达特茅斯研究项目"]  # 1999 不在证据里
+    assert [d.id for d in draft.diagrams] == ["d1"] and [p.image_id for p in draft.photos] == ["2-1"]
+    figures, blobs = await figure_assets.build_figures("tsk1", draft, images)
+    assert "figures/tsk1/photo-2-1.png" in stored and list(blobs) == ["photo-2-1.png"]
+    md = assemble_markdown(draft, charts, include_title=True, figures=figures)
+    assert md.count("```figure") == 2 and md.count("```photo") == 1 and "[[" not in md
+    assert md.index("AI 发展的三个阶段") < md.index("## 一、早期")  # 阶段总览在正文之前
+    files = await report_render.build_report_bundle(title="AI 发展史", markdown=md, sources=[], meta_line="测试",
+                                                    images=blobs, subtitle="摘要")
+    html = files["html"].decode()
+    assert "图1｜AI 发展的三个阶段" in html and "图2｜Shakey 与受控实验环境。图片出处：SRI" in html
+    assert "图3｜知识获取方式如何变化？依据来源" in html and "data:image/png;base64," in html and 'class="cover-banner"' in html
+    mdout = files["md"].decode()
+    assert "data:image/svg+xml;base64," in mdout and "*图2｜Shakey 与受控实验环境" in mdout
+    from docx import Document
+
+    doc = Document(io.BytesIO(files["docx"]))
+    texts = "\n".join(p.text for p in doc.paragraphs)
+    assert "图1｜AI 发展的三个阶段" in texts and "图2｜Shakey" in texts and "图3｜知识获取方式如何变化？" in texts

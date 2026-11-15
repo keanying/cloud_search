@@ -13,7 +13,7 @@ from urllib.parse import urljoin, urlsplit
 
 from ..core.config import get_settings
 from .guard import check_url
-from .reader import MAX_TEXT_CHARS, PageRead, _pdf_text, blocked_reason, extract_main_text
+from .reader import MAX_TEXT_CHARS, PageRead, _pdf_text, blocked_reason, extract_images, extract_main_text
 
 MAX_HTML_BYTES = 6 * 1024 * 1024
 MAX_PDF_BYTES = 30 * 1024 * 1024
@@ -109,4 +109,5 @@ async def read_http(url: str, *, min_chars: int = 200) -> PageRead:
     return PageRead("captured", url, final, title=meta.get("title") or title or None, text=text,
                     site_name=meta.get("sitename") or urlsplit(final).hostname, author=meta.get("author"),
                     publish_time_text=meta.get("date"),
-                    meta={"via": "http", "ms": int((time.monotonic() - t0) * 1000)})
+                    meta={"via": "http", "ms": int((time.monotonic() - t0) * 1000),
+                          "images": extract_images(html, final)})

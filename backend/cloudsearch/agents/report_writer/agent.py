@@ -13,7 +13,7 @@ from .prompts import (
     build_section_prompt,
     build_synthesis_prompt,
 )
-from .schemas import ChartSpec, Highlight, ReportDraft, SectionDraft, TimelineItem
+from .schemas import ChartSpec, DiagramSpec, Highlight, PhotoRef, ReportDraft, SectionDraft, StageItem, TimelineItem
 
 SPEC: AgentSpec[ReportDraft] = AgentSpec(
     role=AgentRole.report_writer, output_type=ReportDraft, instructions=INSTRUCTIONS, request_limit=4)
@@ -31,6 +31,8 @@ def cn_no(i: int) -> str:
 _CITE = re.compile(r"\[(\d{1,3}(?:\s*[,，、]\s*\d{1,3})*)\]")
 _NUM = re.compile(r"-?\d[\d,，]*(?:\.\d+)?")
 _CHART_REF = re.compile(r"\[\[chart:([A-Za-z0-9_-]+)\]\]")
+_DIAGRAM_REF = re.compile(r"\[\[diagram:([A-Za-z0-9_-]+)\]\]")
+_PHOTO_REF = re.compile(r"\[\[photo:(?:img:)?([0-9]+-[0-9]+)\]\]")
 
 
 def sanitize_citations(markdown: str, valid: set[int]) -> tuple[str, list[int]]:
@@ -117,6 +119,54 @@ def verify_timeline(items: list[TimelineItem], evidence_by_n: dict[int, str]) ->
     return sorted(kept, key=year)[:12]
 
 
+def verify_stages(stages: list[StageItem], evidence_by_n: dict[int, str], valid_ns: set[int]) -> list[StageItem]:
+    """阶段总览核对：里程碑里的年份必须出现在该阶段所列来源的证据中（不符的里程碑删除）；不足 3 个阶段则不画。"""
+    kept = []
+    for st in stages[:7]:
+        ns = [n for n in st.source_ns if n in valid_ns]
+        text = "\n".join(evidence_by_n.get(n, "") for n in ns)
+        ms = []
+        for m in st.milestones[:3]:
+            years = _YEAR.findall(m)
+            if text and years and all(y in text for y in years):
+                ms.append(m.strip()[:28])
+        if not st.period.strip() or not st.title.strip() or not ns:
+            continue
+        kept.append(st.model_copy(update={"source_ns": ns, "milestones": ms, "title": st.title.strip()[:16],
+                                          "mainline": (st.mainline or "").strip()[:40] or None}))
+    return kept if len(kept) >= 3 else []
+
+
+def verify_diagram(d: DiagramSpec | None, valid_ns: set[int]) -> DiagramSpec | None:
+    """结构示意图：必须有依据的来源，至少 2 层且每层有节点；文字过长时截短。"""
+    if d is None:
+        return None
+    ns = [n for n in d.source_ns if n in valid_ns]
+    layers = [layer.model_copy(update={"name": layer.name.strip()[:24],
+                                       "nodes": [x.strip()[:18] for x in layer.nodes if x.strip()][:4]})
+              for layer in d.layers[:5]]
+    layers = [layer for layer in layers if layer.nodes and layer.name]
+    if not ns or len(layers) < 2:
+        return None
+    links = [(x or "").strip()[:20] for x in (d.links or [])][:len(layers)]
+    return d.model_copy(update={"source_ns": ns, "layers": layers, "links": links, "title": d.title.strip()[:30],
+                                "note": (d.note or "").strip()[:60] or None})
+
+
+def verify_photo(p: PhotoRef | None, images: dict[str, dict]) -> PhotoRef | None:
+    """来源配图：只能引用证据中列出的图片编号。"""
+    if p is None:
+        return None
+    iid = p.image_id.replace("img:", "").strip()
+    if iid not in images:
+        return None
+    return p.model_copy(update={"image_id": iid, "caption": p.caption.strip()[:80] or images[iid].get("caption", "")})
+
+
+def figure_fence(kind: str, payload: dict) -> str:
+    return f"```{kind}\n" + json.dumps(payload, ensure_ascii=False) + "\n```"
+
+
 def timeline_fence(items: list[TimelineItem], title: str = "关键时间节点") -> str:
     payload = {"title": title, "items": [i.model_dump() for i in items]}
     return "```timeline\n" + json.dumps(payload, ensure_ascii=False) + "\n```"
@@ -136,7 +186,7 @@ def highlights_markdown(items: list[Highlight]) -> str:
 
 
 def assemble_markdown(draft: ReportDraft, charts: list[ChartSpec], *, include_title: bool,
-                      with_highlights: bool = False) -> str:
+                      with_highlights: bool = False, figures: dict | None = None) -> str:
     """组装成完整 Markdown：标题 → 摘要 → 要点 → 正文（图表就位）→ 局限。"""
     by_id = {c.id: c for c in charts}
     placed: set[str] = set()
@@ -148,7 +198,25 @@ def assemble_markdown(draft: ReportDraft, charts: list[ChartSpec], *, include_ti
         placed.add(c.id)
         return "\n\n" + chart_fence(c) + "\n\n"
 
-    body = _CHART_REF.sub(place, draft.markdown).strip()
+    figures = figures or {}
+    diagrams: dict[str, str] = figures.get("diagram") or {}
+    photos: dict[str, str] = figures.get("photo") or {}
+    placed_d: set[str] = set()
+
+    def place_d(m: re.Match) -> str:
+        f = diagrams.get(m.group(1))
+        if not f:
+            return ""
+        placed_d.add(m.group(1))
+        return "\n\n" + f + "\n\n"
+
+    def place_p(m: re.Match) -> str:
+        f = photos.get(m.group(1))
+        return ("\n\n" + f + "\n\n") if f else ""
+
+    body = _CHART_REF.sub(place, draft.markdown)
+    body = _PHOTO_REF.sub(place_p, _DIAGRAM_REF.sub(place_d, body)).strip()
+    body += "".join("\n\n" + f for k, f in diagrams.items() if k not in placed_d and body)
     parts = []
     if include_title and draft.title:
         parts.append(f"# {draft.title}")
@@ -158,7 +226,9 @@ def assemble_markdown(draft: ReportDraft, charts: list[ChartSpec], *, include_ti
         parts.append(highlights_markdown(draft.highlights))
     if draft.key_points:
         parts.append("**要点**\n\n" + "\n".join(f"- {p.strip()}" for p in draft.key_points if p.strip()))
-    if draft.timeline:
+    if figures.get("stages"):
+        parts.append(figures["stages"])
+    elif draft.timeline:
         parts.append(timeline_fence(draft.timeline))
     parts.append(body)
     rest = [chart_fence(c) for c in charts if c.id not in placed]
@@ -172,19 +242,38 @@ def assemble_markdown(draft: ReportDraft, charts: list[ChartSpec], *, include_ti
 async def write(*, kind: str, question: str, outline: list[str], audience: str | None, evidence_block: str,
                 valid_ns: set[int], analysis_block: str, conflicts_block: str, gaps_block: str,
                 ctx: ExecContext, today: str = "", evidence_by_n: dict[int, str] | None = None,
-                on_partial=None) -> tuple[ReportDraft, list[int], list[ChartSpec]]:
-    """on_partial：撰写过程中收到部分草稿（ReportDraft）的回调，用于实时显示。"""
+                on_partial=None, images: dict[str, dict] | None = None) -> tuple[ReportDraft, list[int], list[ChartSpec]]:
+    """on_partial：撰写过程中收到部分草稿（ReportDraft）的回调，用于实时显示。images：可用配图 {编号: {url, caption}}。"""
     draft = await run_agent(SPEC, build_prompt(kind=kind, question=question, outline=outline, audience=audience,
                                                evidence_block=evidence_block, analysis_block=analysis_block,
                                                conflicts_block=conflicts_block, gaps_block=gaps_block, today=today),
                             ctx=ctx, on_partial=on_partial)
     return finalize(draft, valid_ns=valid_ns, evidence_block=evidence_block, analysis_block=analysis_block,
-                    evidence_by_n=evidence_by_n or {})
+                    evidence_by_n=evidence_by_n or {}, images=images)
 
 
 def finalize(draft: ReportDraft, *, valid_ns: set[int], evidence_block: str, analysis_block: str,
-             evidence_by_n: dict[int, str]) -> tuple[ReportDraft, list[int], list[ChartSpec]]:
-    """核对关键数字、时间轴与图表，清理无效引用；返回（草稿, 实际引用的来源序号, 保留的图表）。"""
+             evidence_by_n: dict[int, str], images: dict[str, dict] | None = None
+             ) -> tuple[ReportDraft, list[int], list[ChartSpec]]:
+    """核对关键数字、时间轴、阶段总览、示意图、配图与数据图，清理无效引用；返回（草稿, 实际引用的来源序号, 保留的图表）。"""
+    draft.stages = verify_stages(draft.stages, evidence_by_n, valid_ns)
+    if draft.stages:
+        draft.timeline = []  # 有阶段总览时不再单独画时间轴
+    seen_d: set[str] = set()
+    diagrams = []
+    for d in draft.diagrams[:4]:
+        v = verify_diagram(d, valid_ns)
+        if v is not None and v.id not in seen_d:
+            seen_d.add(v.id)
+            diagrams.append(v)
+    draft.diagrams = diagrams
+    photos, seen_p = [], set()
+    for p in draft.photos[:4]:
+        v = verify_photo(p, images or {})
+        if v is not None and v.image_id not in seen_p:
+            seen_p.add(v.image_id)
+            photos.append(v)
+    draft.photos = photos
     draft.highlights = verify_highlights([h for h in draft.highlights if h.source_n in valid_ns],
                                          evidence_by_n, analysis_block)
     draft.timeline = verify_timeline([t for t in draft.timeline if t.source_n in valid_ns], evidence_by_n)
@@ -198,7 +287,9 @@ def finalize(draft: ReportDraft, *, valid_ns: set[int], evidence_block: str, ana
     draft.markdown, u2 = sanitize_citations(draft.markdown, valid_ns)
     for p in draft.key_points:
         used += sanitize_citations(p, valid_ns)[1]
-    used = sorted(set(u1) | set(u2) | set(used) | {t.source_n for t in draft.timeline})
+    used = sorted(set(u1) | set(u2) | set(used) | {t.source_n for t in draft.timeline}
+                  | {n for st in draft.stages for n in st.source_ns} | {n for d in draft.diagrams for n in d.source_ns}
+                  | {int(p.image_id.split("-")[0]) for p in draft.photos})
     return draft, used, charts
 
 
@@ -213,7 +304,8 @@ async def write_sectioned(*, question: str, sections: list[str], section_evidenc
                           evidence_block: str, valid_ns: set[int], analysis_block: str, conflicts_block: str,
                           gaps_block: str, ctx: ExecContext, today: str = "",
                           evidence_by_n: dict[int, str] | None = None, on_partial=None,
-                          concurrency: int = 3) -> tuple[ReportDraft, list[int], list[ChartSpec]]:
+                          concurrency: int = 3, images: dict[str, dict] | None = None
+                          ) -> tuple[ReportDraft, list[int], list[ChartSpec]]:
     """深度报告：按提纲逐章撰写（每章只看本章证据，可并行），再写综合分析章、标题、摘要、要点与时间轴。
     比一次写完篇幅更长、每章论述更充分；模型调用次数为 章数 + 1。"""
     sem = asyncio.Semaphore(max(1, concurrency))
@@ -237,9 +329,15 @@ async def write_sectioned(*, question: str, sections: list[str], section_evidenc
                 ctx=ctx, on_partial=part if on_partial else None)
 
     drafts = await asyncio.gather(*(one(i) for i in range(len(sections))))
-    chapters, all_charts = [], []
+    chapters, all_charts, all_diagrams, all_photos = [], [], [], []
     for i, d in enumerate(drafts):
         md, charts = _prefix_charts(d.markdown, d.charts[:1], f"s{i + 1}_")
+        if d.diagram is not None:
+            old, new = d.diagram.id, f"s{i + 1}_{d.diagram.id}"
+            md = md.replace(f"[[diagram:{old}]]", f"[[diagram:{new}]]")
+            all_diagrams.append(d.diagram.model_copy(update={"id": new}))
+        if d.photo is not None:
+            all_photos.append(d.photo)
         chapters.append(f"## {cn_no(i)}、{d.heading.strip() or sections[i]}\n\n{md.strip()}")
         all_charts += charts
         texts[i] = chapters[-1]
@@ -253,7 +351,12 @@ async def write_sectioned(*, question: str, sections: list[str], section_evidenc
     if closing and not closing.startswith("## "):
         closing = f"{final_heading}\n\n{closing}"
     synth_md, synth_charts = _prefix_charts(closing, synth.charts[:1], "z_")
+    for d in synth.diagrams[:1]:
+        synth_md = synth_md.replace(f"[[diagram:{d.id}]]", f"[[diagram:z_{d.id}]]")
+        all_diagrams.append(d.model_copy(update={"id": f"z_{d.id}"}))
     synth.markdown = chapters_md + ("\n\n" + synth_md if synth_md else "")
     synth.charts = all_charts + synth_charts
+    synth.diagrams = all_diagrams
+    synth.photos = all_photos + synth.photos[:1]
     return finalize(synth, valid_ns=valid_ns, evidence_block=evidence_block + "\n" + "\n".join(section_evidence),
-                    analysis_block=analysis_block, evidence_by_n=evidence_by_n or {})
+                    analysis_block=analysis_block, evidence_by_n=evidence_by_n or {}, images=images)
