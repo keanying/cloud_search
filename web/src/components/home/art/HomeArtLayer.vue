@@ -4,6 +4,7 @@ import type { HomeArt } from '@/stores/prefs'
 
 // 每种插画按需加载，主包不包含插画
 const ARTS = {
+  glass: defineAsyncComponent(() => import('./GlassArt.vue')),
   hills: defineAsyncComponent(() => import('./HillsArt.vue')),
   pond: defineAsyncComponent(() => import('./PondArt.vue')),
   night: defineAsyncComponent(() => import('./NightArt.vue')),

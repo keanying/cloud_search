@@ -70,7 +70,7 @@ function logout() {
     <aside
       class="ac-side z-[80] flex shrink-0 flex-col"
       :class="[
-        desktop ? 'relative h-full' : 'fixed inset-y-0 left-0 transition-transform duration-200',
+        desktop ? 'ac-side-float relative' : 'fixed inset-y-0 left-0 transition-transform duration-200',
         !desktop && !drawer ? '-translate-x-full' : '',
         mini ? 'w-16' : 'w-[232px]',
       ]"
@@ -80,15 +80,15 @@ function logout() {
         <BrandLogo :size="28" />
         <div v-if="!mini" class="min-w-0 flex-1 leading-tight">
           <div class="text-[14px] font-bold tracking-tight">云搜浏览器</div>
-          <div class="text-[11px] opacity-50">管理后台</div>
+          <div class="text-[11px] text-slate-400">管理后台</div>
         </div>
         <button v-if="!desktop" type="button" class="side-btn" aria-label="关闭导航" @click="drawer = false"><X class="h-4 w-4" /></button>
       </div>
 
       <nav class="min-h-0 flex-1 overflow-y-auto px-2.5 pt-2 pb-3">
         <div v-for="(g, gi) in ADMIN_NAV" :key="gi" class="mt-4 first:mt-0">
-          <div v-if="g.group && !mini" class="mb-1 px-2.5 text-[11px] font-medium opacity-40">{{ g.group }}</div>
-          <div v-else-if="g.group" class="mx-auto my-2 h-px w-6 bg-white/10" />
+          <div v-if="g.group && !mini" class="mb-1 px-3 text-[11px] font-semibold tracking-wide text-slate-500">{{ g.group }}</div>
+          <div v-else-if="g.group" class="mx-auto my-2 h-px w-6 bg-[var(--cs-line-strong)]" />
           <RouterLink
             v-for="it in g.items"
             :key="it.name"
@@ -104,7 +104,7 @@ function logout() {
         </div>
       </nav>
 
-      <div class="border-t border-white/[0.07] px-2.5 py-2.5">
+      <div class="border-t border-[var(--cs-line)] px-2.5 py-2.5">
         <RouterLink :to="appTarget" class="side-link" :class="mini ? 'justify-center !px-0' : ''" :title="mini ? '返回应用' : undefined">
           <ArrowLeftToLine class="h-4 w-4 shrink-0" />
           <span v-if="!mini">返回应用</span>
@@ -153,7 +153,7 @@ function logout() {
         </button>
         <div ref="userAnchor" class="inline-flex">
           <button type="button" class="user-btn" :aria-expanded="userOpen" aria-haspopup="menu" @click="userOpen = !userOpen">
-            <span class="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--pastel-mint)] text-xs font-bold text-[var(--pastel-mint-ink)]">{{ initial }}</span>
+            <span class="avatar-holo flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold">{{ initial }}</span>
             <span class="hidden max-w-32 truncate text-[13px] font-medium text-white sm:inline">{{ auth.displayName }}</span>
             <ChevronDown class="hidden h-3.5 w-3.5 text-slate-400 sm:block" />
           </button>
@@ -185,40 +185,49 @@ function logout() {
   background: var(--cs-bg);
 }
 .ac-side {
-  background: var(--ac-side, #111214);
-  color: #f4f4f0;
+  background: var(--cs-surface);
+  color: var(--color-white);
+  border: 1px solid var(--cs-rim);
+  box-shadow: var(--cs-shadow);
+  backdrop-filter: var(--cs-blur);
+  -webkit-backdrop-filter: var(--cs-blur);
   transition: width 0.18s ease;
 }
-html.dark .ac-side {
-  box-shadow: inset -1px 0 0 rgb(255 255 255 / 0.06);
+/* 桌面：悬浮在网格背景上的玻璃侧栏 */
+.ac-side.ac-side-float {
+  margin: 12px 0 12px 12px;
+  height: calc(100% - 24px);
+  border-radius: 24px;
 }
 .ac-top {
-  background: color-mix(in srgb, var(--cs-bg) 92%, transparent);
-  backdrop-filter: saturate(1.2) blur(8px);
-  border-bottom: 1px solid var(--cs-line);
+  background: color-mix(in srgb, var(--cs-bg) 55%, transparent);
+  backdrop-filter: var(--cs-blur);
+  -webkit-backdrop-filter: var(--cs-blur);
 }
 .side-link {
   display: flex;
   align-items: center;
   gap: 0.65rem;
-  height: 34px;
-  padding: 0 0.7rem;
-  border-radius: 8px;
+  height: 36px;
+  padding: 0 0.75rem;
+  border-radius: 999px;
   font-size: 13px;
   font-weight: 500;
-  color: var(--ac-side-text, rgb(244 244 240 / 0.62));
+  color: var(--color-slate-300);
   transition:
     background-color 0.12s ease,
-    color 0.12s ease;
+    color 0.12s ease,
+    box-shadow 0.12s ease;
 }
 .side-link:hover {
-  color: #f4f4f0;
-  background: var(--ac-side-hover, rgb(255 255 255 / 0.06));
+  color: var(--color-white);
+  background: color-mix(in srgb, var(--cs-ink) 8%, transparent);
 }
 .side-link-on {
   color: #ffffff !important;
-  background: var(--ac-side-active, rgb(255 255 255 / 0.1)) !important;
-  box-shadow: inset 2px 0 0 var(--pastel-mint-dot);
+  background-color: var(--cs-ink) !important;
+  background-image: var(--cs-ink-grad) !important;
+  box-shadow: var(--cs-ink-glow);
   font-weight: 600;
 }
 .side-btn {
@@ -227,11 +236,11 @@ html.dark .ac-side {
   width: 2rem;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
-  color: rgb(244 244 240 / 0.75);
+  border-radius: 999px;
+  color: var(--color-slate-300);
 }
 .side-btn:hover {
-  background: rgb(255 255 255 / 0.08);
+  background: var(--cs-line);
 }
 .cmd-btn {
   display: inline-flex;
@@ -241,9 +250,11 @@ html.dark .ac-side {
   min-width: 32px;
   justify-content: center;
   padding: 0 0.55rem;
-  border-radius: 8px;
-  border: 1px solid var(--cs-line-strong);
+  border-radius: 999px;
+  border: 1px solid var(--cs-rim);
   background: var(--cs-surface-solid);
+  box-shadow: inset 0 0 0 1px var(--cs-line);
+  padding: 0 0.8rem;
   font-size: 12px;
   color: var(--color-slate-400);
 }
@@ -274,7 +285,7 @@ html.dark .ac-side {
   display: flex;
   align-items: center;
   gap: 0.55rem;
-  border-radius: 8px;
+  border-radius: 12px;
   padding: 0.45rem 0.6rem;
   font-size: 13px;
   color: var(--color-slate-100);

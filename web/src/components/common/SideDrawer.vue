@@ -53,13 +53,17 @@ void props
 
 <style scoped>
 .drawer-mask {
-  background: rgb(17 18 20 / 0.32);
+  background: rgb(20 22 45 / 0.28);
+  backdrop-filter: blur(3px);
 }
 .drawer-panel {
   background: var(--cs-surface-solid);
   box-shadow: var(--cs-shadow-lg);
-  border-top-left-radius: 16px;
-  border-bottom-left-radius: 16px;
+  border-left: 1px solid var(--cs-rim);
+  backdrop-filter: var(--cs-blur);
+  -webkit-backdrop-filter: var(--cs-blur);
+  border-top-left-radius: 26px;
+  border-bottom-left-radius: 26px;
 }
 .drawer-enter-active,
 .drawer-leave-active {

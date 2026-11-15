@@ -2,9 +2,10 @@
 import { defineStore } from 'pinia'
 
 export type Theme = 'light' | 'dark'
-export type HomeArt = 'hills' | 'pond' | 'night' | 'plain'
+export type HomeArt = 'glass' | 'hills' | 'pond' | 'night' | 'plain'
 
 export const HOME_ARTS: { value: HomeArt; label: string; dark: boolean }[] = [
+  { value: 'glass', label: '幻彩', dark: false },
   { value: 'hills', label: '山野', dark: false },
   { value: 'pond', label: '荷塘', dark: false },
   { value: 'night', label: '星夜', dark: true },
@@ -19,7 +20,7 @@ function initialTheme(): Theme {
 
 function initialArt(): HomeArt {
   const v = localStorage.getItem('cs_home_art') as HomeArt | null
-  return v && HOME_ARTS.some((a) => a.value === v) ? v : 'hills'
+  return v && HOME_ARTS.some((a) => a.value === v) ? v : 'glass'
 }
 
 function applyTheme(t: Theme) {

@@ -125,7 +125,7 @@ function goSection(id: string) {
       <AppLauncher />
       <div ref="menuRoot">
         <button
-          class="ml-1 flex h-9 w-9 items-center justify-center rounded-full card-mint text-sm font-bold accent-ink"
+          class="avatar-holo ml-1 flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold"
           :aria-expanded="menuOpen"
           aria-haspopup="menu"
           aria-label="用户菜单"
@@ -137,7 +137,7 @@ function goSection(id: string) {
     </template>
   </header>
 
-  <!-- ============================================================ 应用顶栏（近黑浮条） -->
+  <!-- ============================================================ 应用顶栏（磨砂玻璃浮条） -->
   <header
     v-else
     v-bind="$attrs"
@@ -198,18 +198,18 @@ function goSection(id: string) {
         aria-label="用户菜单"
         @click="menuOpen = !menuOpen"
       >
-        <span class="flex h-8 w-8 items-center justify-center rounded-full bg-[#c9efd9] text-sm font-bold text-[#1d4d36]">{{ initial }}</span>
+        <span class="avatar-holo flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold">{{ initial }}</span>
         <span class="hidden max-w-[8rem] truncate font-semibold lg:inline">{{ auth.displayName }}</span>
         <ChevronDown class="hidden h-4 w-4 opacity-60 sm:block" />
       </button>
     </div>
-    <RouterLink v-else :to="{ name: 'login' }" class="rounded-full bg-[#f4f4f0] px-4 py-2 text-sm font-semibold text-[#111214]">登录</RouterLink>
+    <RouterLink v-else :to="{ name: 'login' }" class="btn-primary">登录</RouterLink>
   </header>
 
   <Teleport to="body">
     <div v-if="menuOpen" ref="menuEl" role="menu" class="popover-menu w-56" :style="menuStyle" @click="menuOpen = false">
       <div class="hairline mb-1 flex items-center gap-2.5 border-b px-3 py-2.5 text-sm">
-        <span class="flex h-8 w-8 items-center justify-center rounded-full card-mint text-sm font-bold accent-ink">
+        <span class="avatar-holo flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold">
           <UserRound class="h-4 w-4" />
         </span>
         <div class="min-w-0">
@@ -240,10 +240,10 @@ function goSection(id: string) {
 .app-bar {
   background-color: var(--cs-bar);
   color: var(--cs-on-bar);
-  box-shadow: 0 10px 30px -16px rgba(0, 0, 0, 0.45);
-}
-:global(html.dark) .app-bar {
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.07);
+  border: 1px solid var(--cs-rim);
+  box-shadow: var(--cs-shadow);
+  backdrop-filter: var(--cs-blur);
+  -webkit-backdrop-filter: var(--cs-blur);
 }
 .bar-btn {
   display: inline-flex;
@@ -254,11 +254,12 @@ function goSection(id: string) {
   justify-content: center;
   border-radius: 9999px;
   color: color-mix(in srgb, var(--cs-on-bar) 80%, transparent);
-  background-color: rgb(255 255 255 / 0.06);
+  background-color: var(--cs-surface-solid);
+  box-shadow: inset 0 0 0 1px var(--cs-line);
   transition: background-color 0.15s, color 0.15s;
 }
 .bar-btn:hover {
-  background-color: rgb(255 255 255 / 0.14);
+  background-color: color-mix(in srgb, var(--cs-ink) 10%, var(--cs-surface-solid));
   color: var(--cs-on-bar);
 }
 .bar-nav {
@@ -281,11 +282,13 @@ function goSection(id: string) {
 }
 .bar-nav:hover {
   color: var(--cs-on-bar);
-  background-color: rgb(255 255 255 / 0.08);
+  background-color: color-mix(in srgb, var(--cs-on-bar) 6%, transparent);
 }
 .bar-nav-active,
 .bar-nav-active:hover {
-  background-color: #f4f4f0;
-  color: #111214;
+  background-color: var(--cs-ink);
+  background-image: var(--cs-ink-grad);
+  color: var(--cs-on-ink);
+  box-shadow: var(--cs-ink-glow);
 }
 </style>

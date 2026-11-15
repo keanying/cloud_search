@@ -9,7 +9,7 @@ const emit = defineEmits<{ save: []; discard: [] }>()
 <template>
   <Transition name="savebar">
     <div v-if="count" class="sticky bottom-4 z-20 mt-6 flex justify-center">
-      <div class="savebar flex w-full max-w-[560px] items-center gap-3 rounded-xl py-1.5 pr-1.5 pl-4" role="status">
+      <div class="savebar flex w-full max-w-[560px] items-center gap-3 rounded-full py-1.5 pr-1.5 pl-4" role="status">
         <span class="h-2 w-2 rounded-full bg-[var(--pastel-butter-dot)]" />
         <span class="text-[13px] font-medium">{{ count }} 项修改未保存</span>
         <span class="hidden text-xs opacity-50 sm:inline">离开页面前请保存</span>
@@ -25,17 +25,20 @@ const emit = defineEmits<{ save: []; discard: [] }>()
 
 <style scoped>
 .savebar {
-  background: var(--cs-bar);
-  color: var(--cs-on-bar);
+  background: var(--cs-dock);
+  color: var(--cs-on-dock);
   box-shadow: var(--cs-shadow-lg);
+  border: 1px solid rgb(255 255 255 / 0.12);
+  backdrop-filter: var(--cs-blur);
+  -webkit-backdrop-filter: var(--cs-blur);
 }
 .savebar-ghost,
 .savebar-primary {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  border-radius: 8px;
-  padding: 0.38rem 0.9rem;
+  border-radius: 999px;
+  padding: 0.38rem 0.95rem;
   font-size: 13px;
   font-weight: 600;
 }
@@ -46,8 +49,9 @@ const emit = defineEmits<{ save: []; discard: [] }>()
   background: rgb(255 255 255 / 0.08);
 }
 .savebar-primary {
-  background: #f4f4f0;
-  color: #111214;
+  background: var(--cs-ink-grad);
+  color: #ffffff;
+  box-shadow: var(--cs-ink-glow);
 }
 .savebar-enter-active,
 .savebar-leave-active {

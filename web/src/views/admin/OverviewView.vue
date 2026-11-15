@@ -57,7 +57,7 @@ const kpis = computed(() => {
   const done = range.value.total ? Math.round((range.value.completed / range.value.total) * 100) : null
   return [
     {
-      key: 'tasks', label: `近 ${days.value} 天任务`, icon: ListChecks, tone: 'peach',
+      key: 'tasks', label: `近 ${days.value} 天任务`, icon: ListChecks, tone: 'lilac',
       value: data.value ? compact(range.value.total) : '—',
       sub: data.value ? `完成率 ${done == null ? '—' : `${done}%`}${t?.tasks_active ? ` · ${t.tasks_active} 个进行中` : ''}` : '',
       to: { name: 'admin-tasks' },
@@ -101,20 +101,25 @@ function openFailure(f: AdminOverview['recent_failures'][number]) {
 
 // ---------------------------------------------------------------- 图表配置
 const PAL = {
-  light: { mint: '#2bb27a', peach: '#e46a3a', sky: '#9cc4ea', text: '#303236', muted: '#8a8c92', line: 'rgba(17,18,20,.07)' },
-  dark: { mint: '#5fcf9a', peach: '#f19a7c', sky: '#3f6687', text: '#dcdcd6', muted: '#8a8a85', line: 'rgba(255,255,255,.07)' },
+  light: { ink: '#5b5cf6', ink2: '#8b7bff', rose: '#f0577a', haze: '#c9cdf6', text: '#33364d', muted: '#8a8eaa', line: 'rgba(30,35,80,.07)', dot: '#ffffff' },
+  dark: { ink: '#7c7eff', ink2: '#a99cff', rose: '#ff7d98', haze: '#3a3d66', text: '#d2d5e6', muted: '#7d81a0', line: 'rgba(255,255,255,.07)', dot: '#171828' },
 }
+// 竖向/横向渐变（ECharts 原生渐变对象）
+const grad = (from: string, to: string, horizontal = false) => ({
+  type: 'linear', x: 0, y: 0, x2: horizontal ? 1 : 0, y2: horizontal ? 0 : 1,
+  colorStops: [{ offset: 0, color: from }, { offset: 1, color: to }],
+})
 const tasksOption = computed(() => {
   const rows = data.value?.tasks_by_day ?? []
   return (dark: boolean) => {
     const p = dark ? PAL.dark : PAL.light
-    const bar = (name: string, color: string, values: number[], top = false) => ({
+    const bar = (name: string, color: unknown, values: number[], top = false) => ({
       name,
       type: 'bar',
       stack: 't',
-      barMaxWidth: 22,
+      barMaxWidth: 20,
       data: values,
-      itemStyle: { color, borderRadius: top ? [4, 4, 0, 0] : 0 },
+      itemStyle: { color, borderRadius: top ? [8, 8, 0, 0] : 0 },
       emphasis: { focus: 'series' },
     })
     return {
@@ -130,11 +135,23 @@ const tasksOption = computed(() => {
         axisTick: { show: false },
         axisLabel: { color: p.muted },
       },
-      yAxis: { type: 'value', minInterval: 1, splitLine: { lineStyle: { color: p.line } }, axisLabel: { color: p.muted } },
+      yAxis: { type: 'value', minInterval: 1, splitLine: { lineStyle: { color: p.line, type: 'dashed' } }, axisLabel: { color: p.muted } },
       series: [
-        bar('完成', p.mint, rows.map((r) => r.completed)),
-        bar('失败', p.peach, rows.map((r) => r.failed)),
-        bar('其他', p.sky, rows.map((r) => Math.max(0, r.total - r.completed - r.failed)), true),
+        bar('完成', grad(p.ink, p.ink2), rows.map((r) => r.completed)),
+        bar('失败', p.rose, rows.map((r) => r.failed)),
+        bar('其他', p.haze, rows.map((r) => Math.max(0, r.total - r.completed - r.failed)), true),
+        {
+          name: '总数',
+          type: 'line',
+          smooth: 0.35,
+          data: rows.map((r) => r.total),
+          symbol: 'circle',
+          symbolSize: 8,
+          lineStyle: { color: p.ink, width: 2.5 },
+          itemStyle: { color: p.dot, borderColor: p.ink, borderWidth: 2.5 },
+          areaStyle: { color: grad(dark ? 'rgba(124,126,255,.22)' : 'rgba(91,92,246,.16)', 'rgba(91,92,246,0)') },
+          z: 5,
+        },
       ],
     }
   }
@@ -155,7 +172,7 @@ const roleOption = computed(() => {
         },
       },
       grid: { left: 4, right: 28, top: 4, bottom: 4, containLabel: true },
-      xAxis: { type: 'value', splitLine: { lineStyle: { color: p.line } }, axisLabel: { color: p.muted } },
+      xAxis: { type: 'value', splitLine: { lineStyle: { color: p.line, type: 'dashed' } }, axisLabel: { color: p.muted } },
       yAxis: {
         type: 'category',
         data: rows.map((r) => r.label),
@@ -168,7 +185,9 @@ const roleOption = computed(() => {
           type: 'bar',
           data: rows.map((r) => r.requests),
           barMaxWidth: 12,
-          itemStyle: { color: dark ? '#a596ef' : '#7b68d8', borderRadius: [0, 4, 4, 0] },
+          showBackground: true,
+          backgroundStyle: { color: p.line, borderRadius: 999 },
+          itemStyle: { color: grad(p.ink, p.ink2, true), borderRadius: 999 },
           label: { show: true, position: 'right', color: p.muted, fontSize: 11 },
         },
       ],
@@ -227,7 +246,7 @@ const cooling = (e: AdminOverview['engines'][number]) => !!e.cooldown_until && n
             v-for="d in data.tasks_by_day"
             :key="d.date"
             class="min-w-0 flex-1 rounded-[2px]"
-            :style="{ height: `${Math.max(8, (d.total / dayMax) * 100)}%`, background: d.failed ? 'var(--pastel-peach-dot)' : 'color-mix(in srgb, var(--pastel-peach-dot) 45%, transparent)' }"
+            :style="{ height: `${Math.max(8, (d.total / dayMax) * 100)}%`, background: d.failed ? 'var(--cs-ink-grad)' : 'color-mix(in srgb, var(--cs-ink) 35%, transparent)' }"
             :title="`${d.date}：${d.total} 个（失败 ${d.failed}）`"
           />
         </div>

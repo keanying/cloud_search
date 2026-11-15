@@ -185,13 +185,16 @@ const sections = computed(() => {
 
 <style scoped>
 .cp-mask {
-  background: rgb(17 18 20 / 0.36);
+  background: rgb(20 22 45 / 0.3);
+  backdrop-filter: blur(3px);
 }
 .cp-box {
-  border-radius: 14px;
-  border: 1px solid var(--cs-line-strong);
+  border-radius: 24px;
+  border: 1px solid var(--cs-rim);
   background: var(--cs-surface-solid);
   box-shadow: var(--cs-shadow-lg);
+  backdrop-filter: var(--cs-blur);
+  -webkit-backdrop-filter: var(--cs-blur);
 }
 .cp-enter-active,
 .cp-leave-active {

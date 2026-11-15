@@ -45,9 +45,12 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
   width: min(94vw, calc((100vh - 9rem) * 1.49), 1500px);
   max-height: calc(100vh - 4.5rem);
   overflow: auto;
-  border-radius: 16px;
+  border-radius: 22px;
   background: var(--cs-surface-solid);
-  box-shadow: 0 30px 80px -20px rgb(0 0 0 / 0.55);
+  border: 1px solid var(--cs-rim);
+  box-shadow: 0 30px 80px -20px rgb(20 22 60 / 0.55);
+  backdrop-filter: var(--cs-blur);
+  -webkit-backdrop-filter: var(--cs-blur);
 }
 .close-btn {
   display: inline-flex;
@@ -57,7 +60,8 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
   justify-content: center;
   border-radius: 999px;
   background: rgb(255 255 255 / 0.92);
-  color: #111214;
+  color: #15172a;
+  box-shadow: 0 6px 16px -6px rgb(20 22 60 / 0.4);
 }
 .cs-modal-enter-active,
 .cs-modal-leave-active {
