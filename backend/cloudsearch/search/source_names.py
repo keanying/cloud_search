@@ -31,6 +31,8 @@ def tidy(title: str | None, site_name: str | None, url: str | None) -> tuple[str
     """返回 (整理后的标题, 站点名)。"""
     site = valid_site(site_name)
     t = " ".join((title or "").split())
+    if re.fullmatch(r"[0-9a-f]{16,}(\.pdf)?", t, re.I):
+        t = ""  # 文件名是哈希（如 PDF），不当作标题
     for _ in range(2):  # 最多去两层后缀，如“标题_频道_网站”
         parts = _SEP.split(t)
         if len(parts) < 2:
