@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { tidySource } from '@/lib/sourceNames'
 import { computed, ref, watch, nextTick } from 'vue'
 import { ExternalLink, FileText } from 'lucide-vue-next'
 import type { Citation } from '@/api/types'
@@ -50,7 +51,7 @@ watch(
     >
       <div class="flex items-center gap-2 text-xs muted">
         <span class="cite-chip !m-0 !align-middle">{{ cite.n }}</span>
-        <span v-if="!fileId" class="truncate">{{ cite.site_name || hostOf(cite.url) }}</span>
+        <span v-if="!fileId" class="truncate">{{ tidySource(cite.title, cite.site_name, cite.url).site }}</span>
         <span
           v-if="cite.credibility_label"
           class="cred"
@@ -58,7 +59,7 @@ watch(
         >{{ cite.credibility_label }}</span>
         <span v-if="cite.publish_time_text" class="ml-auto shrink-0">{{ cite.publish_time_text }}</span>
       </div>
-      <div class="mt-1.5 line-clamp-2 text-[14px] font-semibold text-white">{{ cite.title || cite.url }}</div>
+      <div class="mt-1.5 line-clamp-2 text-[14px] font-semibold text-white">{{ tidySource(cite.title, cite.site_name, cite.url).title || hostOf(cite.url) }}</div>
       <blockquote v-if="cite.quote" class="quote">“{{ cite.quote }}”</blockquote>
       <div class="mt-2 flex items-center gap-3 text-xs">
         <button type="button" class="font-semibold accent-ink hover:underline" @click="emit('open', cite.n)">查看来源详情</button>

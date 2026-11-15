@@ -24,6 +24,7 @@ import StageTimeline from './StageTimeline.vue'
 import StatTiles from './StatTiles.vue'
 import FileCard from '@/components/files/FileCard.vue'
 import MiniBrowser from './MiniBrowser.vue'
+import { tidySource } from '@/lib/sourceNames'
 import { fileIdFromUrl } from '@/lib/fileTypes'
 
 /** 右侧“本次任务”看板：统计、阶段时间线、人工协助、最新来源、成果 */
@@ -178,8 +179,8 @@ function badgeTone(s: SourceOut) {
 function sourceFileId(s: SourceOut): string | null {
   return s.access_method === 'user_file' ? fileIdFromUrl(s.final_url || s.request_url) : null
 }
-function siteName(s: SourceOut) {
-  return s.site_name || hostOf(s.final_url || s.request_url).replace(/^www\./, '')
+function shown(s: SourceOut) {
+  return tidySource(s.title, s.site_name, s.final_url || s.request_url)
 }
 </script>
 
@@ -239,7 +240,7 @@ function siteName(s: SourceOut) {
           </p>
           <div class="mt-4 flex flex-wrap gap-2">
             <button v-if="progress?.browser_available" class="btn-primary btn-sm" @click="panel.openBrowserModal(taskId!)">
-              <Globe class="h-3.5 w-3.5" /> {{ active ? '看它在读什么' : '浏览器记录' }}
+              <Globe class="h-3.5 w-3.5" /> 看它在读什么
             </button>
             <button class="btn-secondary btn-sm" @click="panel.openSources(taskId!)">
               <Library class="h-3.5 w-3.5" /> 全部来源
@@ -280,14 +281,17 @@ function siteName(s: SourceOut) {
                 :href="s.final_url || s.request_url"
                 target="_blank"
                 rel="noopener noreferrer"
-                class="group flex items-center gap-3 rounded-2xl px-1 py-1.5 hover:bg-white/5"
+                class="group flex items-start gap-3 rounded-2xl px-1.5 py-2 hover:bg-white/5"
               >
                 <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sm font-bold uppercase accent-ink" :class="badgeTone(s)">
-                  {{ siteName(s).slice(0, 1) }}
+                  {{ shown(s).site.slice(0, 1) }}
                 </span>
                 <span class="min-w-0 flex-1">
-                  <span class="block truncate text-xs text-slate-400">{{ siteName(s) }}</span>
-                  <span class="block truncate text-sm font-medium text-slate-100">{{ s.title || s.final_url || s.request_url }}</span>
+                  <span class="line-clamp-2 text-[13px] leading-5 font-medium text-slate-100">{{ shown(s).title || shown(s).host }}</span>
+                  <span class="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-slate-400">
+                    <span class="truncate">{{ shown(s).site }}</span>
+                    <template v-if="s.publish_time_text"><span aria-hidden="true">·</span><span class="shrink-0">{{ s.publish_time_text.slice(0, 10) }}</span></template>
+                  </span>
                 </span>
                 <ArrowUpRight class="h-4 w-4 shrink-0 text-slate-500 opacity-0 transition group-hover:opacity-100" />
               </a>
@@ -353,7 +357,7 @@ function siteName(s: SourceOut) {
       </section>
 
       <!-- 搜索/读取网页时的浏览器小窗（点击放大） -->
-      <MiniBrowser v-if="taskId && prefs.autoOpenBrowser" :task-id="taskId" :active="active" />
+      <MiniBrowser v-if="taskId && prefs.autoOpenBrowser && progress?.browser_available" :task-id="taskId" :active="active" />
     </div>
   </aside>
 </template>

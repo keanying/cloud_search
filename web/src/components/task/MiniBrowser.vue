@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { Maximize2, Minus, MonitorPlay } from 'lucide-vue-next'
+import { Globe, Maximize2, Minus, MonitorPlay } from 'lucide-vue-next'
 import type { BrowserSessionOut } from '@/api/types'
 import { api } from '@/api/client'
 import { useLiveView } from '@/lib/useLiveView'
@@ -26,6 +26,11 @@ const sessionId = computed(() => session.value?.browser_session_id ?? null)
 const liveOn = computed(() => props.active && !collapsed.value && !!sessionId.value && !panel.modalTaskId)
 const live = useLiveView(sessionId, liveOn)
 const src = computed(() => (live.connected.value && live.frameSrc.value) || snapUrl.value)
+// 浏览器还停在空白页（搜索与读取正走 HTTP）：显示待命说明而不是白屏
+const blank = computed(() => {
+  const u = (live.connected.value && live.frameUrl.value) || session.value?.current_url || ''
+  return !u || u.startsWith('about:') || u.startsWith('chrome://new')
+})
 const needsHuman = computed(() => !!session.value && ['requested', 'active'].includes(session.value.handoff_state ?? ''))
 
 async function poll() {
@@ -75,7 +80,12 @@ function maximize() {
     </button>
     <div v-else class="mini-frame group" :class="needsHuman ? 'ring-2 ring-amber-400' : ''">
       <button class="block h-full w-full" aria-label="放大查看云端浏览器" @click="maximize">
-        <img v-if="src" :src="src" alt="云端浏览器实时画面" class="h-full w-full object-cover object-top" draggable="false" />
+        <span v-if="blank && !needsHuman" class="idle flex h-full w-full flex-col items-center justify-center gap-1.5 px-3 text-center">
+          <Globe class="h-5 w-5 text-brand-400" />
+          <span class="text-xs font-semibold text-slate-100">浏览器待命中</span>
+          <span class="line-clamp-2 text-[11px] leading-4 text-slate-400">{{ session?.current_activity || '正在用 HTTP 直接读取，必要时才打开浏览器' }}</span>
+        </span>
+        <img v-else-if="src" :src="src" alt="云端浏览器实时画面" class="h-full w-full object-cover object-top" draggable="false" />
         <span v-else class="flex h-full w-full items-center justify-center">
           <span class="h-2 w-2 animate-pulse rounded-full bg-slate-400" />
         </span>
@@ -102,9 +112,9 @@ function maximize() {
   width: 100%;
   aspect-ratio: 16 / 10;
   overflow: hidden;
-  border-radius: 14px;
-  border: 1px solid var(--cs-line-strong);
-  background: var(--cs-surface-sunken);
+  border-radius: 18px;
+  border: 1px solid var(--cs-rim);
+  background: var(--color-ink-900);
   box-shadow: var(--cs-shadow-lg);
 }
 .mini-pill {

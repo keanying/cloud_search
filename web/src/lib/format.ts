@@ -125,6 +125,7 @@ export const QUALITY_LABEL: Record<string, string> = {
   rejected: '已驳回',
   candidate: '候选',
   conflicted: '存在冲突',
+  verified: '已核验',
 }
 
 export function qualityLabel(s: string | null | undefined): string {

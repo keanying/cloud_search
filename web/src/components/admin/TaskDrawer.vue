@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { tidySource } from '@/lib/sourceNames'
 import { computed, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { ChevronRight, ExternalLink, FileDown, Loader2, MessageSquare } from 'lucide-vue-next'
@@ -8,7 +9,7 @@ import DrawerTabs from '@/components/admin/DrawerTabs.vue'
 import StatusPill from '@/components/admin/StatusPill.vue'
 import SideDrawer from '@/components/common/SideDrawer.vue'
 import { compact, duration, money, nodeLabel, revisionStatus, stepStatus, taskPastel } from '@/lib/adminFormat'
-import { artifactKindLabel, formatBytes, formatTime, hostOf, modeLabel, relativeTime, taskStatusLabel } from '@/lib/format'
+import { artifactKindLabel, formatBytes, formatTime, modeLabel, relativeTime, taskStatusLabel } from '@/lib/format'
 import { useToastStore } from '@/stores/toast'
 
 /** 任务详情抽屉：概况 / 步骤 / 来源 / 成果 */
@@ -219,7 +220,7 @@ const LIMIT_LABEL: Record<string, string> = {
                 <ExternalLink class="h-3 w-3 shrink-0 opacity-0 group-hover:opacity-60" />
               </a>
               <span class="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-slate-500">
-                <span>{{ s.site_name || hostOf(s.url) }}</span>
+                <span>{{ tidySource(s.title, s.site_name, s.url).site }}</span>
                 <span>· {{ s.credibility_label }}</span>
                 <span v-if="s.failure_reason" class="text-amber-300">· {{ s.failure_reason }}</span>
               </span>
