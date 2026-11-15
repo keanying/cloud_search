@@ -288,3 +288,17 @@ def test_source_title_and_site_tidy():
                 "https://peps.python.org/pep-0008/") == ("PEP 8 – Style Guide for Python Code", "peps.python.org")
     assert tidy("GPT-5 发布", None, "https://www.example.com/a") == ("GPT-5 发布", "example.com")  # 不拆连字符
     assert tidy(None, "©2026 某某网 版权所有", "https://www.foo.cn/") == (None, "foo.cn")
+
+
+def test_pdf_title_and_missing_notes():
+    from cloudsearch.browser.reader import pdf_title
+    from cloudsearch.contracts import FieldSpec
+    from cloudsearch.orchestrator.exporters import missing_text
+    from cloudsearch.search.source_names import tidy
+
+    assert pdf_title(b"", "[第1页]\nLecture Notes on Lisp Machines\n", "https://ocw.mit.edu/30eb0d06f5903c7a4256d397a.pdf") \
+        == "Lecture Notes on Lisp Machines"
+    assert tidy("30eb0d06f5903c7a4256d397a", None, "https://ocw.mit.edu/x.pdf")[0] is None
+    fields = [FieldSpec(key="price", label="票价"), FieldSpec(key="phone", label="电话"), FieldSpec(key="open", label="开放时间")]
+    assert missing_text(fields, {"price": "not_found", "phone": "not_found", "open": "source_conflict"}) \
+        == "来源未提及：票价、电话；来源冲突：开放时间"

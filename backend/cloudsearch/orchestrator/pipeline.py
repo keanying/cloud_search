@@ -109,6 +109,7 @@ class Pipeline:
         self.key_entities: list[str] = []
         self.findings: list[EvidenceRef] = []
         self.records: list[dict] = []
+        self.empty_rows = 0  # 数据表中因所有字段都无法核实而省略的对象数
         self.blocked = 0
         self.failed = 0
         self.blocked_engines: set[str] = set()
@@ -677,8 +678,19 @@ class Pipeline:
                 if eid:
                     findings.append({"evidence_id": eid, "n": src.n, "claim": f.claim, "quote": f.quote,
                                      "aspect": f.aspect})
-            labels = {f.key: f.label for f in (self.spec.dataset.fields if self.spec.dataset else [])}
+            fields = self.spec.dataset.fields if self.spec.dataset else []
+            labels = {f.key: f.label for f in fields}
+            # 模型有时用字段名称（而不是字段键）作为键：统一映射回字段键
+            alias = {**{f.label: f.key for f in fields}, **{f.key.lower(): f.key for f in fields},
+                     **{f.label.replace(" ", ""): f.key for f in fields}}
+
+            def norm(k: str) -> str:
+                return k if k in labels else alias.get(k) or alias.get(k.lower()) or alias.get(k.replace(" ", "")) or k
+
             for rec in out.records:
+                rec.values = {norm(k): v for k, v in rec.values.items()}
+                rec.quotes = {norm(k): v for k, v in rec.quotes.items()}
+                rec.missing_reasons = {norm(k): v for k, v in rec.missing_reasons.items()}
                 values, missing, eids = {}, dict(rec.missing_reasons), {}
                 for k, v in rec.values.items():
                     if v is None or v == "":
@@ -808,7 +820,9 @@ class Pipeline:
                 order.append(k)
             groups[k].append(r)
         rows = []
-        for k in order[: ds.max_records]:
+        for k in order:
+            if len(rows) >= ds.max_records:
+                break
             recs = groups[k]
             values, missing, nos, conflicts = {}, {}, set(), {}
             for f in ds.fields:
@@ -827,6 +841,9 @@ class Pipeline:
                     values[f.key] = None
                     reasons = [r["missing_reasons"].get(f.key) for r in recs if r["missing_reasons"].get(f.key)]
                     missing[f.key] = reasons[0] if reasons else "not_found"
+            if not any(v is not None for v in values.values()) and not conflicts:
+                self.empty_rows += 1  # 没有任何字段能从来源核实：不输出空行
+                continue
             rows.append({"entity_name": recs[0]["entity_name"], "values": values, "missing_reasons": missing,
                          "source_nos": sorted(nos), "conflicts": conflicts})
         sources = [s.public() for s in sorted(self.sources.values(), key=lambda s: s.n)]
@@ -967,6 +984,8 @@ class Pipeline:
         if self.blocked or self.failed:
             gaps.append(f"{self.blocked} 个来源访问受限、{self.failed} 个读取失败，未纳入")
         gaps += [f"覆盖不足：{m}" for m in self.coverage_missing]
+        if self.empty_rows:
+            gaps.append(f"数据表中有 {self.empty_rows} 个对象的所有字段都无法从来源原文核实，已省略")
         gaps += [f"文件「{x['name']}」未能读取：{x['reason']}" for x in self.file_failures]
         gaps += [f"文件「{x['name']}」较长（共 {x['total']} 部分），本次按与问题的相关度和均匀覆盖精读了其中 {x['read']} 部分；"
                  "数据文件的统计数字来自程序对全部记录的计算" for x in self.file_partial]

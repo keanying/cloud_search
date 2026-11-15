@@ -6,6 +6,7 @@ import { api } from '@/api/client'
 import { FORMAT_LABEL, downloadFormat } from '@/lib/artifactFormats'
 import { artifactKindLabel, formatBytes, formatTime, qualityLabel } from '@/lib/format'
 import { renderMarkdownPlain } from '@/lib/markdown'
+import DataPreviewTable from '@/components/common/DataPreviewTable.vue'
 import { usePanelStore } from '@/stores/panel'
 import { useToastStore } from '@/stores/toast'
 
@@ -69,11 +70,6 @@ async function download() {
     downloading.value = false
   }
 }
-
-function cell(v: unknown): string {
-  if (v == null) return ''
-  return typeof v === 'object' ? JSON.stringify(v) : String(v)
-}
 </script>
 
 <template>
@@ -122,27 +118,10 @@ function cell(v: unknown): string {
       <div v-else-if="error" class="text-sm text-rose-300">{{ error }}</div>
       <template v-else-if="preview">
         <template v-if="preview.kind === 'table'">
-          <div v-if="truncated" class="mb-2 rounded-lg bg-amber-500/10 px-3 py-1.5 text-xs text-amber-200">
+          <div v-if="truncated" class="mb-2 rounded-xl bg-amber-500/10 px-3 py-1.5 text-xs text-amber-200">
             仅显示前 {{ preview.shown_rows }} 行，共 {{ preview.total_rows }} 行；完整数据请下载文件
           </div>
-          <div class="overflow-auto rounded-xl border border-white/10">
-            <table class="min-w-full text-left text-xs">
-              <thead class="sticky top-0 bg-ink-800 shadow-[0_1px_0_var(--cs-line)]">
-                <tr>
-                  <th class="px-2 py-1.5 font-medium text-slate-400">#</th>
-                  <th v-for="c in preview.columns || []" :key="c" class="px-2 py-1.5 font-medium whitespace-nowrap text-slate-300">{{ c }}</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(r, i) in preview.rows || []" :key="i" class="hairline border-t align-top even:bg-white/[0.025]">
-                  <td class="px-2 py-1.5 text-slate-600">{{ i + 1 }}</td>
-                  <td v-for="(v, j) in r" :key="j" class="max-w-[280px] px-2 py-1.5 text-slate-200" :class="v == null || v === '' ? 'text-slate-600' : ''">
-                    {{ v == null || v === '' ? '空' : cell(v) }}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <DataPreviewTable :columns="preview.columns || []" :rows="preview.rows || []" :total-rows="preview.total_rows" :task-id="panel.taskId" />
         </template>
         <!-- eslint-disable-next-line vue/no-v-html -- 已净化 -->
         <div v-else-if="preview.kind === 'markdown'" class="prose-cs" v-html="html" />

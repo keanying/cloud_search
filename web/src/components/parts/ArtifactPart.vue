@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { Download, Eye, FileBarChart, FileSpreadsheet, FileText, Loader2 } from 'lucide-vue-next'
-import type { ArtifactFormat, ArtifactPart } from '@/api/types'
+import type { ArtifactFormat, ArtifactPart, ArtifactPreviewOut } from '@/api/types'
+import DataPreviewTable from '@/components/common/DataPreviewTable.vue'
 import { api } from '@/api/client'
 import { artifactKindLabel, formatBytes, qualityLabel } from '@/lib/format'
 import { FORMAT_LABEL, FORMAT_TONE, downloadFormat, partFormats, previewArtifactId } from '@/lib/artifactFormats'
@@ -41,6 +42,18 @@ async function dlOriginal() {
   }
 }
 
+// 数据成果：卡片内直接显示前几行（完整表格点“预览”在右侧打开）
+const table = ref<ArtifactPreviewOut | null>(null)
+onMounted(async () => {
+  if (!isTable.value) return
+  try {
+    const p = await api.artifactPreview(previewArtifactId(props.part))
+    if (p.kind === 'table') table.value = p
+  } catch {
+    /* 预览失败不影响下载 */
+  }
+})
+
 function preview() {
   panel.openArtifact(previewArtifactId(props.part), props.part.task_id, formats.value, props.part.display_name)
 }
@@ -64,6 +77,12 @@ function preview() {
         </div>
       </div>
       <button class="btn-primary btn-sm shrink-0" @click="preview"><Eye class="h-3.5 w-3.5" /> 预览</button>
+    </div>
+    <div v-if="table && (table.rows || []).length" class="mt-4">
+      <DataPreviewTable compact :columns="table.columns || []" :rows="table.rows || []" :task-id="part.task_id" :max-rows="5" :max-cols="6" />
+      <button type="button" class="mt-1.5 text-xs font-semibold accent-ink hover:underline" @click="preview">
+        查看全部 {{ table.total_rows ?? table.rows?.length }} 行 · {{ (table.columns || []).length }} 列 →
+      </button>
     </div>
     <div class="mt-4 flex flex-wrap items-center gap-1.5">
       <template v-if="formats.length">

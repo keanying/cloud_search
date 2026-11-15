@@ -13,7 +13,7 @@ from urllib.parse import urljoin, urlsplit
 
 from ..core.config import get_settings
 from .guard import check_url
-from .reader import MAX_TEXT_CHARS, PageRead, _pdf_text, blocked_reason, extract_images, extract_main_text
+from .reader import MAX_TEXT_CHARS, PageRead, _pdf_text, blocked_reason, extract_images, extract_main_text, pdf_title
 
 MAX_HTML_BYTES = 6 * 1024 * 1024
 MAX_PDF_BYTES = 30 * 1024 * 1024
@@ -86,7 +86,7 @@ async def read_http(url: str, *, min_chars: int = 200) -> PageRead:
             return PageRead("failed", url, final, reason="PDF 超过 30MB 上限")
         text = _pdf_text(body)[:MAX_TEXT_CHARS]
         st = "captured" if len(text.strip()) > min_chars else "no_content"
-        return PageRead(st, url, final, title=urlsplit(final).path.rsplit("/", 1)[-1], text=text,
+        return PageRead(st, url, final, title=pdf_title(body, text, final), text=text,
                         site_name=urlsplit(final).hostname, reason=None if st == "captured" else "PDF无可提取文本",
                         meta={"via": "http", "ms": int((time.monotonic() - t0) * 1000)})
     if ctype and not any(t in ctype for t in ("html", "xml", "text/plain")):

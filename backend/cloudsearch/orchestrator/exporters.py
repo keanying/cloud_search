@@ -16,6 +16,15 @@ MISSING_LABELS = {"not_found": "来源未提及", "not_disclosed": "明确不公
                   "not_requested": "未要求", "unverified": "摘录未能校验，未采用"}
 
 
+def missing_text(fields: list[FieldSpec], reasons: dict[str, str]) -> str:
+    """缺失说明：按原因分组、用字段名称，如“来源未提及：票价、电话；来源冲突：开放时间”。"""
+    labels = {f.key: f.label for f in fields}
+    groups: dict[str, list[str]] = {}
+    for k, v in reasons.items():
+        groups.setdefault(MISSING_LABELS.get(v, v), []).append(labels.get(k, k))
+    return "；".join(f"{why}：{'、'.join(names)}" for why, names in groups.items())
+
+
 def escape_cell(v: Any) -> Any:
     """防 CSV/Excel 公式注入：以 = + - @ 制表符/回车开头的文本前加单引号。"""
     if isinstance(v, str) and v and v[0] in ("=", "+", "-", "@", "\t", "\r"):
@@ -34,7 +43,7 @@ def render_csv(fields: list[FieldSpec], rows: list[dict]) -> bytes:
     w = csv.writer(buf)
     w.writerow([f.label for f in fields] + ["来源序号", "缺失说明"])
     for r in rows:
-        missing = "; ".join(f"{k}:{MISSING_LABELS.get(v, v)}" for k, v in r["missing_reasons"].items())
+        missing = missing_text(fields, r["missing_reasons"])
         srcs = ",".join(str(n) for n in r["source_nos"])
         w.writerow([_cell(r["values"].get(f.key)) for f in fields] + [srcs, escape_cell(missing)])
     return ("﻿" + buf.getvalue()).encode("utf-8")

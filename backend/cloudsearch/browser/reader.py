@@ -133,6 +133,31 @@ def _pdf_text(data: bytes) -> str:
     return "\n".join(pages)
 
 
+_ID_LIKE = re.compile(r"^[0-9a-f]{12,}$|^[\w-]*\d{6,}[\w-]*$|^(document|download|file|view|index|untitled)\d*$", re.I)
+
+
+def pdf_title(data: bytes, text: str, url: str) -> str:
+    """PDF 标题：优先文档属性里的标题；文件名像哈希/编号时改用正文第一行有意义的文字；最后才用文件名。"""
+    name = urlsplit(url).path.rsplit("/", 1)[-1]
+    stem = re.sub(r"\.pdf$", "", name, flags=re.I)
+    try:
+        meta = PdfReader(io.BytesIO(data)).metadata
+        t = (meta.title or "").strip() if meta else ""
+        if t and not _ID_LIKE.match(t) and not t.lower().endswith((".doc", ".docx", ".pdf", ".tex")):
+            return t[:200]
+    except Exception:  # noqa: BLE001
+        pass
+    if stem and not _ID_LIKE.match(stem) and len(stem) > 3:
+        return stem.replace("_", " ").replace("-", " ")[:200]
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("[第") or len(line) < 6:
+            continue
+        if re.search(r"[\u4e00-\u9fff]{3}|[A-Za-z]{3,}\s+[A-Za-z]{3,}", line):
+            return line[:120]
+    return name or url
+
+
 async def _read_pdf(s: CloudBrowserSession, url: str) -> PageRead:
     resp = await s.context.request.get(url, timeout=60000, max_redirects=5)
     final_url = resp.url
@@ -144,7 +169,7 @@ async def _read_pdf(s: CloudBrowserSession, url: str) -> PageRead:
         return PageRead("failed", url, final_url, reason="PDF 超过 30MB 上限")
     text = _pdf_text(data)[:MAX_TEXT_CHARS]
     status = "captured" if len(text.strip()) > 200 else "no_content"
-    return PageRead(status, url, final_url, title=urlsplit(final_url).path.rsplit("/", 1)[-1], text=text,
+    return PageRead(status, url, final_url, title=pdf_title(data, text, final_url), text=text,
                     site_name=urlsplit(final_url).hostname, reason=None if status == "captured" else "PDF无可提取文本",
                     meta={"content_type": "application/pdf"})
 

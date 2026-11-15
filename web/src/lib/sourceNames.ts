@@ -22,6 +22,7 @@ function validSite(name: string | null | undefined): string | null {
 export function tidySource(title: string | null | undefined, siteName: string | null | undefined, url: string | null | undefined) {
   let site = validSite(siteName)
   let t = (title || '').replace(/\s+/g, ' ').trim()
+  if (/^[0-9a-f]{16,}(\.pdf)?$/i.test(t)) t = '' // 文件名是哈希（如 PDF），不当作标题
   for (let i = 0; i < 2; i++) {
     const parts = t.split(SEP)
     if (parts.length < 2) break
