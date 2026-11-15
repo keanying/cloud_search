@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { FileText, Globe, Library, Paperclip, X } from 'lucide-vue-next'
 import { usePanelStore, type PanelType } from '@/stores/panel'
 import { useChatStore } from '@/stores/chat'
@@ -15,14 +15,23 @@ const dragging = ref(false)
 let mq: MediaQueryList | null = null
 
 const tabs = computed(() => {
-  const t: { type: PanelType; label: string; icon: typeof Globe }[] = [
-    { type: 'browser', label: '云端浏览器', icon: Globe },
-    { type: 'sources', label: '来源', icon: Library },
-  ]
+  const t: { type: PanelType; label: string; icon: typeof Globe }[] = []
+  // 搜索/读网页结束后不再提供浏览器（与任务卡片上的入口一致）
+  if (chat.browserOpen(panel.taskId)) t.push({ type: 'browser', label: '云端浏览器', icon: Globe })
+  t.push({ type: 'sources', label: '来源', icon: Library })
   if (panel.artifactId) t.push({ type: 'artifact', label: '成果', icon: FileText })
   if (panel.fileId) t.push({ type: 'file', label: '文件', icon: Paperclip })
   return t
 })
+
+// 浏览器阶段结束时正在看浏览器：自动切到来源
+watch(
+  () => panel.open && panel.type === 'browser' && !!panel.taskId && !chat.browserOpen(panel.taskId),
+  (closed) => {
+    if (closed && panel.taskId) panel.openSources(panel.taskId)
+  },
+  { immediate: true },
+)
 
 const taskOptions = computed(() => Object.values(chat.tasks).sort((a, b) => (a.created_time < b.created_time ? 1 : -1)))
 

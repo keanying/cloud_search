@@ -1,9 +1,10 @@
 <script setup lang="ts">
+import { tidySource } from '@/lib/sourceNames'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { ExternalLink, FileText, Quote, Search } from 'lucide-vue-next'
 import type { TaskSourcesOut } from '@/api/types'
 import { api } from '@/api/client'
-import { ACCESS_METHOD_LABEL, ACTIVE_STATUSES, formatTime, hostOf, qualityLabel } from '@/lib/format'
+import { ACCESS_METHOD_LABEL, ACTIVE_STATUSES, formatTime, qualityLabel } from '@/lib/format'
 import { useChatStore } from '@/stores/chat'
 import { usePanelStore } from '@/stores/panel'
 import { fileIdFromUrl } from '@/lib/fileTypes'
@@ -103,16 +104,16 @@ onBeforeUnmount(() => window.clearInterval(timer))
                 rel="noopener noreferrer nofollow"
                 class="group inline-flex items-start gap-1 text-sm font-medium text-white hover:text-brand-300"
               >
-                <span class="line-clamp-2">{{ s.title || s.final_url || s.request_url }}</span>
+                <span class="line-clamp-2">{{ tidySource(s.title, s.site_name, s.final_url || s.request_url).title || s.final_url || s.request_url }}</span>
                 <ExternalLink class="mt-0.5 h-3.5 w-3.5 shrink-0 opacity-60 group-hover:opacity-100" />
               </a>
-              <div v-if="!fileIdOf(s)" class="mt-0.5 truncate text-xs text-slate-500">{{ s.final_url || s.request_url }}</div>
+              <div v-if="!fileIdOf(s)" class="mt-0.5 truncate text-xs text-slate-500" :title="s.final_url || s.request_url">{{ tidySource(s.title, s.site_name, s.final_url || s.request_url).host }}</div>
               <div v-if="fileIdOf(s)" class="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-400">
                 <span>读取于 {{ formatTime(s.retrieved_time) }}</span>
                 <button type="button" class="font-semibold text-brand-300 hover:underline" @click="panel.openFile(fileIdOf(s)!)">查看文件</button>
               </div>
               <div v-else class="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-400">
-                <span>发布主体：{{ s.site_name || hostOf(s.final_url || s.request_url) || '未知' }}</span>
+                <span>发布主体：{{ tidySource(s.title, s.site_name, s.final_url || s.request_url).site }}</span>
                 <span v-if="s.author">作者：{{ s.author }}</span>
                 <span>发布时间：{{ s.publish_time_text || '未知' }}</span>
                 <span>读取于 {{ formatTime(s.retrieved_time) }}</span>

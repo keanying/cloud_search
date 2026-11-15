@@ -27,6 +27,7 @@ from ..core.storage import get_storage
 from ..db.models import Artifact, Evidence, SourceCandidate, SourceRevision
 from ..search import credibility
 from ..search.service import browser_search, normalize_url, rank_hits
+from ..search.source_names import tidy as tidy_source
 from . import exporters
 from .context import BudgetExhausted, LeaseLost, StepResult, TaskExecContext, TaskInterrupted
 from .progress import update_progress
@@ -73,6 +74,14 @@ class PipelineOutcome:
 
 def _norm_entity(name: str) -> str:
     return re.sub(r"[\s\W_]+", "", (name or "").lower())
+
+
+async def _note_activity(sess, text: str) -> None:
+    """在浏览器会话上记下当前动作（实时画面停在空白页时，界面据此显示“正在用 HTTP 读取…”）。"""
+    try:
+        await sess.set_activity(text)
+    except Exception:  # noqa: BLE001 —— 仅用于展示
+        log.debug("set_activity failed", exc_info=True)
 
 
 def _unwrap_group(eg: BaseExceptionGroup) -> BaseException:
@@ -244,7 +253,8 @@ class Pipeline:
                                      settings.task_read_concurrency)
                     await self._stage("coverage")
                 await self._stage("coverage", "done" if did_extra else "skipped")
-        await update_progress(self.ctx.task_id, browser_available=True)  # 会话已关闭，保留最后帧供查看
+        # 搜索与读网页结束、浏览器会话已关闭：界面上关闭浏览器入口（之后的核验、写作不再使用浏览器）
+        await update_progress(self.ctx.task_id, browser_available=False)
 
     async def _files_phase(self) -> None:
         """上传文件：等待解析完成 → 每个文件（长文档按章节/页码分段）登记为可引用的来源 → 抽取。"""
@@ -576,7 +586,7 @@ class Pipeline:
         return chosen or fallback()
 
     async def _read_fn(self, c: TaskExecContext, sess, candidate_id: str, url: str) -> StepResult:
-        from ..core.tracelog import trace
+        from ..core.tracelog import debug_log, trace
 
         goal = "；".join(self.spec.scope.questions) or self.spec.requirement_text
         t0 = asyncio.get_running_loop().time()
@@ -584,6 +594,7 @@ class Pipeline:
         r, method = None, "browser"
         if mode in ("auto", "http"):
             # 先不开浏览器：HTTP 直接请求 + 抽取正文（浏览器访问网站更容易触发人机验证）
+            await _note_activity(sess, f"HTTP 读取：{url}")
             r = await read_http(url)
             method = "http"
             if r.status != "captured":
@@ -598,6 +609,12 @@ class Pipeline:
         trace("read", f"{ {'captured': '读取成功', 'blocked': '受限', 'failed': '失败', 'no_content': '无正文'}.get(r.status, r.status) }"
               f"（{'HTTP' if method == 'http' else '浏览器'}，{asyncio.get_running_loop().time() - t0:.1f}s）：{url}",
               final_url=final if final != url else None, title=r.title, chars=len(r.text or ""), reason=r.reason)
+        # 标题去掉“_腾讯新闻”之类的站点后缀；站点名丢弃版权声明等无效值，取不到时用域名
+        r.title, r.site_name = tidy_source(r.title, r.site_name, final)
+        debug_log("read", f"读取{r.status}（{method}）：{url}", url=url, final_url=final, method=method,
+                  status=r.status, reason=r.reason, title=r.title, site=r.site_name,
+                  publish_time=r.publish_time_text, chars=len(r.text or ""), text_excerpt=(r.text or "")[:4000],
+                  duration_s=round(asyncio.get_running_loop().time() - t0, 2))
         if r.status == "captured" and normalize_url(final) in self.read_urls:
             return StepResult({"status": "duplicate", "url": url, "final_url": final})
         srid = new_id("srcrev")

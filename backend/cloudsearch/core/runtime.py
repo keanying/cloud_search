@@ -58,6 +58,9 @@ FIELDS: list[Field] = [
     Field("browser_read_mode", "读网页方式", "browser", "select",
           "auto：先用 HTTP 直接请求并抽取正文（不开浏览器，最不容易触发人机验证），拿不到再用云端浏览器；"
           "http：只用 HTTP；browser：只用浏览器。"),
+    Field("logs_debug", "详细调试记录", "debug", "bool",
+          "开启后记录每个智能体的完整提示词与输出（AI 解析的内容）、每个搜索引擎的完整结果、网页与文件解析出的正文片段。"
+          "内容可能包含业务资料，只在排查问题时开启，日志默认保留 7 天。"),
     Field("browser_takeover_enabled", "人机验证时请求人工接手", "browser", "bool",
           "遇到验证码/人机验证时暂停任务，在实时画面中请用户完成验证；关闭则直接跳过该网站。"),
     Field("browser_takeover_timeout_s", "等待接手时长（秒）", "browser", "int",

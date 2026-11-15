@@ -275,3 +275,16 @@ async def test_http_reader_reports_block_short_and_guard(env, monkeypatch):
     r = await http_reader.read_http("https://r.example/")
     assert r.status == "failed" and "UrlNotAllowed" in r.reason  # 重定向到内网被拦
     assert (await http_reader.read_http("https://bin.example/f.zip")).status == "failed"
+
+
+def test_source_title_and_site_tidy():
+    from cloudsearch.search.source_names import tidy
+
+    assert tidy("黄仁勋走了，“达链”老板们开始盘订单_腾讯新闻", "Copyright 1998 - 2026 Tencent. All Rights Reserved",
+                "https://news.qq.com/a/1") == ("黄仁勋走了，“达链”老板们开始盘订单", "腾讯新闻")
+    assert tidy("巨头算力订单拉动数据中心扩张，AI基建融资路径迎检验 - 21世纪经济报道", "sfccn.com",
+                "https://www.sfccn.com/x") == ("巨头算力订单拉动数据中心扩张，AI基建融资路径迎检验", "21世纪经济报道")
+    assert tidy("PEP 8 – Style Guide for Python Code | peps.python.org", "peps.python.org",
+                "https://peps.python.org/pep-0008/") == ("PEP 8 – Style Guide for Python Code", "peps.python.org")
+    assert tidy("GPT-5 发布", None, "https://www.example.com/a") == ("GPT-5 发布", "example.com")  # 不拆连字符
+    assert tidy(None, "©2026 某某网 版权所有", "https://www.foo.cn/") == (None, "foo.cn")

@@ -21,6 +21,12 @@ import { useAttachments } from '@/lib/useAttachments'
 const props = defineProps<{ id: string }>()
 const chat = useChatStore()
 const panel = usePanelStore()
+
+// 搜索与读网页结束后浏览器入口关闭：还开着的浏览器大窗自动关掉
+const modalBrowserClosed = computed(() => !!panel.modalTaskId && !chat.browserOpen(panel.modalTaskId))
+watch(modalBrowserClosed, (closed) => {
+  if (closed) panel.closeBrowserModal()
+})
 const toast = useToastStore()
 const ui = useUiStore()
 const wide = useMedia(WIDE_QUERY)

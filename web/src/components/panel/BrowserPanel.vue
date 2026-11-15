@@ -18,6 +18,7 @@ import EmptyState from '@/components/common/EmptyState.vue'
 const props = defineProps<{ taskId: string | null; bare?: boolean }>()
 const panel = usePanelStore()
 const toast = useToastStore()
+const isBlankUrl = (u: string) => !u || u.startsWith('about:') || u.startsWith('chrome://new')
 
 const sessions = ref<BrowserSessionOut[]>([])
 const sessionsLoaded = ref(false)
@@ -172,6 +173,16 @@ const frameAge = computed(() => {
   return Math.max(0, Math.round((now.value - t) / 1000))
 })
 const shownUrl = computed(() => (isLive.value && live.frameUrl.value) || meta.value?.current_url || '')
+/** 浏览器还停在空白页：搜索与读网页这会儿都在用 HTTP 完成（不开浏览器，减少人机验证） */
+const idle = computed(
+  () =>
+    !metaError.value &&
+    !interactive.value &&
+    !['requested', 'active'].includes(handoffState.value) &&
+    !meta.value?.masked &&
+    isBlankUrl(shownUrl.value),
+)
+const activity = computed(() => meta.value?.current_activity || selectedSession.value?.current_activity || '')
 const shownTitle = computed(() => (isLive.value && live.frameTitle.value) || meta.value?.current_title || '')
 
 // ---------------------------------------------------------------- 人工接手
@@ -361,9 +372,21 @@ function onPaste(e: ClipboardEvent) {
           class="relative overflow-hidden bg-ink-800"
           :class="[bare ? '' : 'rounded-xl border', interactive ? 'border-brand-500 ring-2 ring-brand-400/50' : 'hairline']"
         >
+          <!-- 待命：浏览器还没打开任何网页（搜索与读取正走 HTTP） -->
+          <div v-if="idle" class="flex aspect-video flex-col items-center justify-center gap-3 px-6 text-center">
+            <span class="round-btn pointer-events-none !h-12 !w-12"><Globe class="h-6 w-6" /></span>
+            <div class="text-[15px] font-semibold text-white">浏览器待命中</div>
+            <p class="max-w-md text-sm leading-6 text-slate-400">
+              为减少人机验证，搜索和读取网页会先直接请求完成；遇到需要执行脚本或被拦截的网页时，才会在这里打开浏览器。
+            </p>
+            <span v-if="activity" class="pill max-w-full bg-[var(--cs-surface-solid)] !px-3 !py-1.5 text-slate-200">
+              <Loader2 class="h-3.5 w-3.5 shrink-0 animate-spin text-brand-400" />
+              <span class="truncate">{{ activity }}</span>
+            </span>
+          </div>
           <!-- 实时画面 -->
           <img
-            v-if="isLive && !meta?.masked"
+            v-else-if="isLive && !meta?.masked"
             ref="frameImg"
             :src="live.frameSrc.value || ''"
             alt="云端浏览器实时画面"

@@ -36,6 +36,7 @@ export const router = createRouter({
         { path: 'diagnose', name: 'admin-diagnose', component: () => import('@/views/admin/DiagnoseView.vue') },
         { path: 'tasks', name: 'admin-tasks', component: () => import('@/views/admin/TasksView.vue') },
         { path: 'runs', name: 'admin-runs', component: () => import('@/views/admin/RunsView.vue') },
+        { path: 'debug', name: 'admin-debug', component: () => import('@/views/admin/DebugView.vue') },
         { path: 'users', name: 'admin-users', component: () => import('@/views/admin/UsersView.vue') },
       ],
     },

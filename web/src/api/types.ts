@@ -768,3 +768,12 @@ export interface DiagnoseOut {
   proxy: string | null
   results: DiagnoseResult[]
 }
+
+export interface AdminDebugStatus {
+  enabled: boolean
+  keep_days: number
+  files: { name: string; bytes: number; modified: string }[]
+  app_log_bytes: number
+  challenge_files: number
+  logs_dir: string
+}

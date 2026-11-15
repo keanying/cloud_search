@@ -15,6 +15,9 @@ from ..core.ids import utcnow
 from ..db.models import Task
 from ..services.events import publish_message, publish_task, task_output_messages, upsert_part
 
+# 与 control.TERMINAL 一致（control 引用了本模块，这里不反向引用）
+TERMINAL = ("stopped", "completed", "partial_failed", "failed", "cancelled")
+
 COUNTER_KEYS = ("queries", "candidates", "sources_read", "sources_failed", "evidence")
 
 # 同一任务的进度更新串行化（读-改-写 JSON 摘要，避免并发读取/抽取时丢失计数）
@@ -51,7 +54,8 @@ def build_progress_part(t: Task) -> dict[str, Any]:
     return {"type": "progress", "part_id": f"progress-{t.task_id}", "task_id": t.task_id,
             "task_status": t.task_status, "stage": t.current_stage,
             "stage_label": STAGE_LABELS.get(t.current_stage or "", ""), "stages": stages, "counters": counters,
-            "browser_available": bool(summary.get("browser_available")),
+            # 浏览器只在搜索/读网页阶段可看；任务结束（含失败、停止）后一律关闭入口
+            "browser_available": bool(summary.get("browser_available")) and t.task_status not in TERMINAL,
             "metrics": {"started_ms": timing["started_ms"], "finished_ms": timing["finished_ms"],
                         "elapsed_ms": timing["elapsed_ms"], "llm_requests": t.llm_request_qty,
                         "spent_minor_amt": t.spent_minor_amt, "cost_unknown_qty": t.cost_unknown_qty}}

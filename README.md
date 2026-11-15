@@ -96,6 +96,12 @@ scripts/server.sh logs [api|worker]     # 跟踪日志（logs/ 目录）
 在 config.yaml 设置 `mineru.local: true`、`privacy.data_local_only: true`、`local_llm.ollama_models`，启动脚本会随启动
 自动安装 MinerU、下载模型、拉取本地大模型并离线运行。完整步骤见 [docs/deploy-local.md](docs/deploy-local.md)。
 
+## 调试日志（管理员）
+
+- **管理后台 → 记录 → 调试日志**：打开「详细调试记录」后，系统会完整记录每个智能体的提示词与输出（AI 解析出的内容）、每个搜索引擎的完整结果、网页与文件解析出的正文片段（写入 `logs/debug/<日期>.jsonl`，默认保留 7 天）。
+- 同一页面可下载**全系统日志包**（最近 1 小时 ~ 7 天，ZIP），也可**按任务下载**；包内 README.md 说明每个文件的内容。日志包不含任何密钥与密码。
+- 每个任务都能单独下载：对话里任务卡片的「⋯ → 下载详细日志（管理员）」、右侧「本次任务」的「详细日志」、后台任务详情的「详细日志」。
+
 ## 目录结构
 
 ```

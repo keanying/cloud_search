@@ -33,6 +33,20 @@ export const useChatStore = defineStore('chat', {
     stopRequestedAt: 0,
   }),
   getters: {
+    /** 任务的浏览器入口是否开放：只在搜索/读网页阶段（以最新进度卡片为准）；没有进度卡片时按开放处理 */
+    browserOpen(s) {
+      return (taskId: string | null | undefined): boolean => {
+        if (!taskId) return false
+        for (let i = s.messages.length - 1; i >= 0; i--) {
+          const parts = s.messages[i].parts
+          for (let j = parts.length - 1; j >= 0; j--) {
+            const p = parts[j] as { type: string; task_id?: string; browser_available?: boolean }
+            if (p.type === 'progress' && p.task_id === taskId) return p.browser_available !== false
+          }
+        }
+        return true
+      }
+    },
     activeTasks(s): TaskOut[] {
       return Object.values(s.tasks).filter((t) => ACTIVE_STATUSES.has(t.task_status))
     },

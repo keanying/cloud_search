@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { tidySource } from '@/lib/sourceNames'
 import { computed, ref } from 'vue'
 import { FileText, Library } from 'lucide-vue-next'
 import type { SourcePart } from '@/api/types'
@@ -50,13 +51,13 @@ function badgeStyle(c?: string) {
           <span class="cite-chip !m-0 !mt-1 !align-middle">{{ s.n }}</span>
           <FileText v-if="fileIdOf(s)" class="mt-0.5 h-4 w-4 shrink-0 text-brand-300" aria-hidden="true" />
           <span class="min-w-0 flex-1">
-            <span class="block truncate text-sm font-medium text-white">{{ s.title || s.url }}</span>
+            <span class="line-clamp-2 text-sm leading-5 font-medium text-white">{{ tidySource(s.title, s.site_name, s.url).title || hostOf(s.url) }}</span>
             <span class="mt-0.5 flex items-center gap-1.5 text-xs muted">
-              <span v-if="!fileIdOf(s)" class="truncate">{{ s.site_name || hostOf(s.url) }}</span>
+              <span v-if="!fileIdOf(s)" class="truncate">{{ tidySource(s.title, s.site_name, s.url).site }}</span>
               <span v-if="s.credibility_label && s.credibility !== 'unknown'" class="cred" :style="badgeStyle(s.credibility)">
                 {{ s.credibility_label }}
               </span>
-              <span v-if="s.publish_time_text" class="shrink-0">· {{ s.publish_time_text }}</span>
+              <span v-if="s.publish_time_text" class="shrink-0">· {{ s.publish_time_text.slice(0, 10) }}</span>
             </span>
           </span>
         </button>

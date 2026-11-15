@@ -1,5 +1,6 @@
 // 轻量 fetch 封装：统一 Bearer、错误解析与 401 处理。
 import type {
+  AdminDebugStatus,
   AdminAgentRun,
   AdminOverview,
   AdminSettings,
@@ -251,6 +252,18 @@ export const api = {
     const m = /filename\*=UTF-8''([^;]+)/i.exec(cd)
     saveBlob(await res.blob(), m ? decodeURIComponent(m[1]) : `执行日志_${taskId}.log`)
   },
+  /** 管理员：下载调试日志包（ZIP）。传 taskId 只导出该任务；否则导出最近 hours 小时的整个系统 */
+  downloadDebugBundle: async (o: { taskId?: string; hours?: number; includeText?: boolean } = {}) => {
+    const q = new URLSearchParams()
+    if (o.taskId) q.set('task_id', o.taskId)
+    if (o.hours) q.set('hours', String(o.hours))
+    q.set('include_text', o.includeText === false ? 'false' : 'true')
+    const res = await rawFetch(`/admin/debug/bundle?${q}`)
+    const cd = res.headers.get('content-disposition') || ''
+    const m = /filename\*=UTF-8''([^;]+)/i.exec(cd)
+    saveBlob(await res.blob(), m ? decodeURIComponent(m[1]) : '调试日志.zip')
+  },
+  adminDebugStatus: () => get<AdminDebugStatus>('/admin/debug/status'),
   downloadArtifact: async (id: string, filename: string) => {
     const res = await rawFetch(`/artifacts/${enc(id)}/download`)
     saveBlob(await res.blob(), filename)

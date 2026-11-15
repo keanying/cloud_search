@@ -200,10 +200,11 @@ async def _run_once(spec: AgentSpec[O], prompt: str, resolved, *, deps: Any, ctx
                    step_id=ctx.step_id if ctx else None, conversation_id=conversation_id,
                    agent_role=spec.role.value, model_profile_id=resolved.primary_profile_id, started_time=started)
     from ..core.config import get_settings
-    from ..core.tracelog import trace
+    from ..core.tracelog import debug_enabled, debug_log, trace
 
     t0 = time.monotonic()
-    want_prompt = get_settings().logs_include_prompts
+    dbg = debug_enabled()
+    want_prompt = get_settings().logs_include_prompts or dbg
     try:
         result = await _invoke(agent, prompt, deps, UsageLimits(request_limit=spec.request_limit), spec.output_type,
                                on_partial)
@@ -211,6 +212,11 @@ async def _run_once(spec: AgentSpec[O], prompt: str, resolved, *, deps: Any, ctx
         trace("llm", f"{spec.role.value} 调用失败（{time.monotonic() - t0:.1f}s）：{type(e).__name__}: {str(e)[:500]}",
               prompt_chars=len(prompt), status_code=getattr(e, "status_code", None),
               prompt=prompt if want_prompt else None)
+        debug_log("llm", f"{spec.role.value} 调用失败", task_id=ctx.task_id if ctx else None,
+                  conversation_id=conversation_id, agent_role=spec.role.value, agent_run_id=run.agent_run_id,
+                  duration_s=round(time.monotonic() - t0, 2), error=f"{type(e).__name__}: {e}",
+                  status_code=getattr(e, "status_code", None), instructions=spec.instructions if dbg else None,
+                  prompt=prompt)
         rejected = getattr(e, "status_code", None) in (400, 422)
         run.run_status = "failed"
         run.error_desc = f"{type(e).__name__}: {e}"[:2000]
@@ -253,6 +259,14 @@ async def _run_once(spec: AgentSpec[O], prompt: str, resolved, *, deps: Any, ctx
           prompt=prompt if want_prompt else None,
           output=(result.output.model_dump_json()[:4000] if hasattr(result.output, "model_dump_json")
                   else str(result.output)[:4000]) if want_prompt else None)
+    if dbg:
+        out = result.output
+        debug_log("llm", f"{spec.role.value} · {model_name or ''}", task_id=ctx.task_id if ctx else None,
+                  conversation_id=conversation_id, agent_role=spec.role.value, agent_run_id=run.agent_run_id,
+                  provider=provider_name, model=model_name, duration_s=round(time.monotonic() - t0, 2),
+                  requests=reqs, input_tokens=in_tok, output_tokens=out_tok, instructions=spec.instructions,
+                  prompt=prompt,
+                  output=out.model_dump(mode="json") if hasattr(out, "model_dump") else str(out))
     async with session_scope() as s:
         s.add(run)
     if ctx is not None:
