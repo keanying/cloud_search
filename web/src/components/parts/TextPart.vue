@@ -7,6 +7,8 @@ import { renderMarkdown, splitCharts } from '@/lib/markdown'
 import { usePanelStore } from '@/stores/panel'
 import ChartBlock from './ChartBlock.vue'
 import TimelineBlock from './TimelineBlock.vue'
+import FigureBlock from './FigureBlock.vue'
+import PhotoBlock from './PhotoBlock.vue'
 
 const props = defineProps<{ part: TextPart; taskId?: string | null; streaming?: boolean }>()
 const panel = usePanelStore()
@@ -87,6 +89,8 @@ function onClick(e: MouseEvent) {
       <!-- eslint-disable-next-line vue/no-v-html -- 已经过 markdown-it(html:false)+DOMPurify 净化 -->
       <div v-if="s.kind === 'md'" v-html="(s as { html: string }).html" />
       <TimelineBlock v-else-if="s.kind === 'timeline'" :raw="s.raw" :fig="s.fig" />
+      <FigureBlock v-else-if="s.kind === 'figure'" :raw="s.raw" :fig="s.fig" />
+      <PhotoBlock v-else-if="s.kind === 'photo'" :raw="s.raw" :fig="s.fig" />
       <ChartBlock v-else-if="s.kind === 'chart'" :raw="s.raw" :fig="s.fig" />
     </template>
   </div>

@@ -52,6 +52,7 @@ class SourceInfo:
     text: str | None = None
     credibility: str = "unknown"
     file_id: str | None = None
+    images: list[dict] = field(default_factory=list)  # 可作配图的图片候选 [{url, caption}]
 
     def public(self) -> dict[str, Any]:
         return {"n": self.n, "source_revision_id": self.source_revision_id, "url": self.url, "title": self.title,
@@ -479,7 +480,7 @@ class Pipeline:
             retrieved_time=out["retrieved_time"], access_method=out["access_method"], content_ref=out["content_ref"],
             credibility="user_file" if user_file else
             credibility.classify(out["final_url"] or out["url"], preferred=self.preferred_sources),
-            file_id=out.get("file_id"))
+            file_id=out.get("file_id"), images=list(out.get("images") or [])[:4])
 
     async def _extract_one(self, srid: str) -> None:
         async with self._llm_sem:
@@ -643,7 +644,7 @@ class Pipeline:
         return StepResult({"status": r.status, "source_revision_id": srid, "n": n, "url": url, "final_url": final,
                            "title": r.title, "site_name": r.site_name, "publish_time_text": r.publish_time_text,
                            "retrieved_time": iso(now), "access_method": method, "content_ref": content_ref,
-                           "reason": r.reason}, persist)
+                           "reason": r.reason, "images": (r.meta or {}).get("images") or []}, persist)
 
     async def _load_text(self, src: SourceInfo) -> str:
         if src.text is None:
@@ -896,6 +897,8 @@ class Pipeline:
                 flag = "【存在冲突】" if e.evidence_id in conflicted else ""
                 aspect = f"〔{e.aspect}〕" if getattr(e, "aspect", None) else ""
                 lines.append(f"- {flag}{aspect}{e.claim}：「{e.quote[:200]}」")
+            for k, img in enumerate(src.images[:2], 1):
+                lines.append(f"- 可用配图 img:{src.n}-{k}：{img.get('caption', '')}")
             blocks[src.n] = "\n".join(lines)
         chosen: list[int] = [s.n for s in srcs]
         if sum(len(b) for b in blocks.values()) > budget:
@@ -919,6 +922,14 @@ class Pipeline:
             evs = sorted(by_n[n], key=lambda e: (e.evidence_id in conflicted, -len(e.quote)))
             best_quote[n] = evs[0].quote[:240] if evs else ""
         return "\n\n".join(blocks[n] for n in chosen), evidence_text, best_quote
+
+    def _image_candidates(self) -> dict[str, dict]:
+        """撰写时可选用的配图：img:<来源序号>-<序号> → {url, caption, n, site}"""
+        out = {}
+        for src in self.sources.values():
+            for k, img in enumerate(src.images[:2], 1):
+                out[f"{src.n}-{k}"] = {**img, "n": src.n, "site": src.site_name or ""}
+        return out
 
     def _section_evidence(self, verified: dict, sections: list[str]) -> list[str]:
         """分章撰写：每章只给本章的证据（按 aspect 归类）；本章来源太少时补上未归类的证据，仍不足则给全部证据。"""
@@ -978,25 +989,33 @@ class Pipeline:
                 audience=report.audience if report else None, evidence_block=evidence_block,
                 valid_ns=set(evidence_text) or valid_ns, analysis_block=analysis_block,
                 conflicts_block=conflicts_block, gaps_block="\n".join(gaps), ctx=c,
-                today=utcnow().strftime("%Y-%m-%d"), evidence_by_n=evidence_text, on_partial=on_partial)
+                today=utcnow().strftime("%Y-%m-%d"), evidence_by_n=evidence_text, on_partial=on_partial,
+                images=self._image_candidates())
         else:
             draft, used, charts = await report_writer.write(
                 kind="answer" if is_answer else "report", question=question,
                 outline=outline, audience=report.audience if report else None,
                 evidence_block=evidence_block, valid_ns=valid_ns,
                 analysis_block=analysis_block, conflicts_block=conflicts_block, gaps_block="\n".join(gaps), ctx=c,
-                today=utcnow().strftime("%Y-%m-%d"), evidence_by_n=evidence_text, on_partial=on_partial)
+                today=utcnow().strftime("%Y-%m-%d"), evidence_by_n=evidence_text, on_partial=on_partial,
+                images=self._image_candidates())
         title = draft.title or self.spec.title
-        full_md = report_writer.assemble_markdown(draft, charts, include_title=True, with_highlights=True)
+        from .figure_assets import build_figures
+
+        figures, figure_blobs = await build_figures(c.task_id, draft, self._image_candidates())
+        full_md = report_writer.assemble_markdown(draft, charts, include_title=True, with_highlights=True,
+                                                  figures=figures)
         if is_answer:
-            chat_md = report_writer.assemble_markdown(draft, charts, include_title=False)
+            chat_md = report_writer.assemble_markdown(draft, charts, include_title=False, figures=figures)
         else:
-            # 报告：对话中展示摘要、要点与图表，完整报告见文件/右侧预览
+            # 报告：对话中展示摘要、要点、阶段总览与图表，完整报告（含正文配图）见文件/右侧预览
             brief = draft.model_copy(update={"markdown": "", "limitations": []})
-            chat_md = (f"### {title}\n\n" + report_writer.assemble_markdown(brief, charts, include_title=False)
+            chat_md = (f"### {title}\n\n" + report_writer.assemble_markdown(
+                brief, charts, include_title=False, figures={"stages": figures.get("stages")})
                        + "\n完整报告（含正文、图表与参考来源）可在下方下载 Word / PDF，或点「查看完整报告」。")
         cited = [s.public() for s in sorted(self.sources.values(), key=lambda s: s.n) if s.n in used]
-        bundle = await self._save_report_bundle(c, title, full_md, cited)
+        bundle = await self._save_report_bundle(c, title, full_md, cited, images=figure_blobs,
+                                                subtitle=draft.summary)
         citations = []
         for n in used:
             cit = self._citation(n)
@@ -1032,7 +1051,8 @@ class Pipeline:
 
         return publish
 
-    async def _save_report_bundle(self, c: TaskExecContext, title: str, markdown: str, sources: list[dict]) -> dict:
+    async def _save_report_bundle(self, c: TaskExecContext, title: str, markdown: str, sources: list[dict],
+                                  images: dict[str, tuple[bytes, str]] | None = None, subtitle: str = "") -> dict:
         """同一份报告生成 HTML / Word / PDF / Markdown 四种格式（PDF 需要浏览器，不可用时省略）。"""
         from . import report_render
 
@@ -1042,7 +1062,8 @@ class Pipeline:
         meta = (f"{mode_label} · 生成于 {utcnow().strftime('%Y-%m-%d %H:%M')} UTC · 引用来源 {len(sources)} 个"
                 f"{f' · 资料截至 {latest}' if latest else ''} · 机器核验，未经人工审核")
         files = await report_render.build_report_bundle(title=title, markdown=markdown, sources=sources,
-                                                        meta_line=meta)
+                                                        meta_line=meta, images=images or {},
+                                                        subtitle=re.sub(r"\[\d+\]", "", subtitle or "")[:80])
         base = re.sub(r"[\\/:*?\"<>|\s]+", "_", title)[:60] or "report"
         mimes = {"html": "text/html", "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                  "pdf": "application/pdf", "md": "text/markdown"}

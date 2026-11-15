@@ -10,7 +10,7 @@ from __future__ import annotations
 import io
 import re
 from dataclasses import dataclass, field
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import trafilatura
 from pypdf import PdfReader
@@ -66,6 +66,51 @@ async def _challenge_widget(s: CloudBrowserSession) -> str | None:
         return await s.page.evaluate(CHALLENGE_JS)
     except Exception:  # noqa: BLE001
         return None
+
+
+_SKIP_IMG = re.compile(r"logo|icon|avatar|sprite|banner-ad|/ads?/|qrcode|qr_code|wechat|weixin_|placeholder|blank|"
+                       r"pixel|spacer|loading|emoji|badge|button|\.svg(\?|$)|\.gif(\?|$)", re.I)
+
+
+def extract_images(html: str, base_url: str, limit: int = 4) -> list[dict]:
+    """网页里可作为报告配图的图片候选：og:image、带图注的 <figure>、正文中带说明文字的大图。
+    返回 [{url, caption}]；只记录地址与说明，下载在写报告时按需进行（并经过出口检查）。"""
+    try:
+        from lxml import html as lh
+
+        doc = lh.fromstring(html)
+    except Exception:  # noqa: BLE001
+        return []
+    out: list[dict] = []
+    seen: set[str] = set()
+
+    def add(src: str | None, caption: str | None) -> None:
+        if not src or src.startswith("data:") or len(out) >= limit:
+            return
+        url = urljoin(base_url, src.strip())
+        if not url.startswith(("http://", "https://")) or url in seen or _SKIP_IMG.search(url):
+            return
+        cap = " ".join((caption or "").split())[:120]
+        if len(cap) < 4:
+            return
+        seen.add(url)
+        out.append({"url": url, "caption": cap})
+
+    for fig in doc.xpath("//figure[.//img]")[:8]:
+        img = fig.xpath(".//img")[0]
+        cap = " ".join(fig.xpath(".//figcaption//text()")) or img.get("alt")
+        add(img.get("src") or img.get("data-src"), cap)
+    title = (doc.findtext(".//title") or "").strip()
+    og = doc.xpath("//meta[@property='og:image' or @name='og:image' or @name='twitter:image']/@content")
+    og_alt = doc.xpath("//meta[@property='og:image:alt' or @name='twitter:image:alt']/@content")
+    if og:
+        add(og[0], (og_alt[0] if og_alt else "") or title)
+    for img in doc.xpath("//article//img | //main//img")[:20]:
+        w = img.get("width") or ""
+        if w.isdigit() and int(w) < 300:
+            continue
+        add(img.get("src") or img.get("data-src"), img.get("alt"))
+    return out
 
 
 def extract_main_text(html: str, url: str) -> dict:
@@ -156,7 +201,7 @@ async def read_url(s: CloudBrowserSession, url: str, *, min_chars: int = 200, ac
                             site_name=meta.get("sitename") or urlsplit(final_url).hostname,
                             author=meta.get("author"), publish_time_text=meta.get("date"),
                             reason=None if status == "captured" else "页面正文过短",
-                            meta={"content_type": ctype})
+                            meta={"content_type": ctype, "images": extract_images(html, final_url)})
         except UrlNotAllowed as e:
             return PageRead("failed", url, reason=str(e))
         except Exception as e:  # noqa: BLE001

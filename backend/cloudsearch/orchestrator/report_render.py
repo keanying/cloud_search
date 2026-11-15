@@ -16,6 +16,8 @@ from typing import Any
 
 from markdown_it import MarkdownIt
 
+from .figures import cover_svg
+
 log = logging.getLogger(__name__)
 
 PALETTE = ["#6366f1", "#14b8a6", "#f59e0b", "#ef4444", "#8b5cf6", "#0ea5e9", "#84cc16", "#ec4899"]
@@ -126,6 +128,39 @@ def svg_chart(c: dict[str, Any], width: int = 720, height: int = 360, *, show_ti
     return "".join(out)
 
 
+def parse_figure(info: str, content: str) -> dict | None:
+    """```figure（阶段总览图 / 结构示意图，内含 SVG）"""
+    if info.strip() != "figure":
+        return None
+    try:
+        f = json.loads(content)
+        return f if isinstance(f, dict) and str(f.get("svg", "")).startswith("<svg") else None
+    except json.JSONDecodeError:
+        return None
+
+
+def parse_photo(info: str, content: str) -> dict | None:
+    """```photo（来源网页里的图片，文件存于私有存储，导出时内嵌）"""
+    if info.strip() != "photo":
+        return None
+    try:
+        f = json.loads(content)
+        return f if isinstance(f, dict) and f.get("name") else None
+    except json.JSONDecodeError:
+        return None
+
+
+def _responsive(svg: str) -> str:
+    """去掉固定宽高，按容器宽度缩放。"""
+    return re.sub(r'^<svg([^>]*?) width="\d+" height="\d+"', r'<svg\1 style="width:100%;height:auto"', svg, count=1)
+
+
+def _data_uri(data: bytes, mime: str) -> str:
+    import base64
+
+    return f"data:{mime};base64,{base64.b64encode(data).decode()}"
+
+
 def parse_timeline(info: str, content: str) -> dict | None:
     if info.strip() != "timeline":
         return None
@@ -136,10 +171,17 @@ def parse_timeline(info: str, content: str) -> dict | None:
         return None
 
 
+def _sep(text: str) -> str:
+    """句末已有标点时不再补“。”"""
+    return "" if text[-1:] in "。？！?!." else "。"
+
+
 def caption_text(no: int, title: str, source: str | None = None) -> str:
     """图注：图n｜标题。数据来源：…"""
     cap = f"图{no}｜{title}".rstrip("｜")
-    return cap + (f"。数据来源：{source}" if source else "")
+    if not source:
+        return cap
+    return cap + _sep(cap) + (source if source.startswith("依据来源") else f"数据来源：{source}")
 
 
 def timeline_html(t: dict, no: int) -> str:
@@ -170,6 +212,9 @@ CSS = """
 body { margin: 0; background: #f6f7fb; color: #1e293b; font: 15px/1.75 %(font)s; }
 .doc { max-width: 860px; margin: 32px auto; background: #fff; padding: 48px 56px; border-radius: 14px;
        box-shadow: 0 10px 30px rgba(15,23,42,.06); }
+.cover.cover-img { padding: 0 0 16px; background: #fff; }
+.cover.cover-img .meta { padding: 12px 56px 0; }
+.cover.cover-img .cover-banner { border-radius: 14px 14px 0 0; }
 .cover { margin: -48px -56px 28px; padding: 40px 56px 26px; border-radius: 14px 14px 0 0;
          background: linear-gradient(120deg, #fde7f6 0%%, #e7e2ff 32%%, #dcefff 66%%, #e2f8ee 100%%);
          border-bottom: 1px solid #e2e8f0; }
@@ -196,6 +241,12 @@ figure.chart svg { max-width: 100%%; height: auto; border: 1px solid #eef2f7; bo
 figure.chart figcaption, figure.timeline figcaption { color: #64748b; font-size: 12.5px; margin-top: 8px;
   font-style: italic; text-align: center; }
 figure { break-inside: avoid; }
+figure.fig { margin: 22px 0; text-align: center; }
+figure.fig svg, figure.fig img { max-width: 100%%; border-radius: 12px; border: 1px solid #eef2f7; }
+figure.fig img { max-height: 520px; object-fit: contain; background: #f8fafc; }
+figure.fig figcaption { color: #64748b; font-size: 12.5px; margin-top: 8px; font-style: italic; }
+.cover-banner { display: block; width: 100%%; height: auto; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 figure.timeline { margin: 20px 0; padding: 16px 18px 12px; border: 1px solid #eef2f7; border-radius: 12px; background: #fbfcfe; }
 figure.timeline ol { list-style: none; margin: 0; padding: 0; position: relative; }
 figure.timeline ol::before { content: ""; position: absolute; left: 104px; top: 6px; bottom: 6px; width: 2px;
@@ -235,6 +286,22 @@ def _md() -> MarkdownIt:
 
     def fence(renderer, tokens, idx, options, env):
         tok = tokens[idx]
+        fig = parse_figure(tok.info, tok.content)
+        if fig is not None:
+            env["fig"] = env.get("fig", 0) + 1
+            cap = _html.escape(caption_text(env["fig"], fig.get("caption") or "",
+                                            f"依据来源{fig['sources']}" if fig.get("sources") else None))
+            return f'<figure class="fig">{_responsive(fig["svg"])}<figcaption>{cap}</figcaption></figure>'
+        ph = parse_photo(tok.info, tok.content)
+        if ph is not None:
+            blob = (env.get("images") or {}).get(ph["name"])
+            if not blob:
+                return ""
+            env["fig"] = env.get("fig", 0) + 1
+            head = f"图{env['fig']}｜{ph.get('caption', '')}"
+            cap = _html.escape(f"{head}{_sep(head)}{ph.get('credit', '')}")
+            return (f'<figure class="fig photo"><img src="{_data_uri(*blob)}" alt="{_html.escape(ph.get("caption", ""))}">'
+                    f'<figcaption>{cap}</figcaption></figure>')
         tl = parse_timeline(tok.info, tok.content)
         if tl is not None:
             env["fig"] = env.get("fig", 0) + 1
@@ -290,10 +357,14 @@ def _cred_badge(src: dict) -> str:
     return f' <span class="cred {_html.escape(src.get("credibility") or "")}">{_html.escape(lab)}</span>'
 
 
-def render_html(*, title: str, markdown: str, sources: list[dict], meta_line: str) -> str:
+def render_html(*, title: str, markdown: str, sources: list[dict], meta_line: str,
+                images: dict[str, tuple[bytes, str]] | None = None, subtitle: str = "") -> str:
     body_md = re.sub(r"^#\s+.*\n", "", markdown, count=1) if markdown.lstrip().startswith("# ") else markdown
-    body = _toc(_stat_tiles(_md().render(body_md, {})))
-    body = _CITE.sub(lambda m: f'<sup class="cite"><a href="#ref-{m.group(1)}">[{m.group(1)}]</a></sup>', body)
+    body = _toc(_stat_tiles(_md().render(body_md, {"images": images or {}})))
+    # 引用编号转链接；SVG 图里的文字不处理（否则会插入非 SVG 元素）
+    body = re.sub(r"(<svg.*?</svg>)|\[(\d{1,3})\]",
+                  lambda m: m.group(1) or f'<sup class="cite"><a href="#ref-{m.group(2)}">[{m.group(2)}]</a></sup>',
+                  body, flags=re.S)
     refs = ""
     if sources:
         items = "".join(
@@ -307,7 +378,8 @@ def render_html(*, title: str, markdown: str, sources: list[dict], meta_line: st
     return (f'<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">'
             f'<meta name="viewport" content="width=device-width,initial-scale=1">'
             f"<title>{_html.escape(title)}</title><style>{CSS}</style></head><body><main class=\"doc\">"
-            f'<header class="cover"><div class="kicker">云搜浏览器 · 研究报告</div><h1>{_html.escape(title)}</h1>'
+            f'<header class="cover cover-img">{_responsive(cover_svg(title, subtitle)).replace("<svg", "<svg class=\"cover-banner\"", 1)}'
+            f'<h1 class="sr-only">{_html.escape(title)}</h1>'
             f'<div class="meta">{_html.escape(meta_line)}</div></header>{body}{refs}'
             f'<div class="footer">由云搜浏览器生成 · 内容均来自实际读取的网页并标注来源 · 机器核验，未经人工审核</div>'
             f"</main></body></html>")
@@ -348,23 +420,29 @@ async def render_pdf(html: str) -> bytes | None:
     return await _with_page(fn)
 
 
-async def render_chart_pngs(charts: list[dict]) -> list[bytes | None]:
-    if not charts:
+async def render_svg_pngs(svgs: list[str]) -> list[bytes | None]:
+    """SVG → PNG（Word 导出用）；没有可用浏览器时返回 None。"""
+    if not svgs:
         return []
 
     async def fn(page):
         out = []
-        for c in charts:
-            await page.set_content(f"<html><body style='margin:0'>{svg_chart(c, show_title=False)}</body></html>")
+        for svg in svgs:
+            await page.set_content(f"<html><body style='margin:0'>{svg}</body></html>")
             out.append(await page.locator("svg").first.screenshot(type="png"))
         return out
 
-    return await _with_page(fn) or [None] * len(charts)
+    return await _with_page(fn) or [None] * len(svgs)
+
+
+async def render_chart_pngs(charts: list[dict]) -> list[bytes | None]:
+    return await render_svg_pngs([svg_chart(c, show_title=False) for c in charts])
 
 
 # ---------------------------------------------------------------- Word
 def render_docx(*, title: str, markdown: str, sources: list[dict], meta_line: str,
-                chart_pngs: list[bytes | None]) -> bytes:
+                chart_pngs: list[bytes | None], images: dict[str, tuple[bytes, str]] | None = None,
+                cover_png: bytes | None = None) -> bytes:
     from docx import Document
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     from docx.oxml.ns import qn
@@ -383,6 +461,9 @@ def render_docx(*, title: str, markdown: str, sources: list[dict], meta_line: st
         st.element.get_or_add_rPr().get_or_add_rFonts().set(qn("w:eastAsia"), "微软雅黑")
     doc.styles["Normal"].font.size = Pt(10.5)
 
+    doc.core_properties.title = title
+    if cover_png:  # 装饰横幅（不含文字），标题仍是真正的标题，便于导航与检索
+        doc.add_picture(io.BytesIO(cover_png), width=Cm(16.6))
     h = doc.add_heading(title, level=0)
     h.alignment = WD_ALIGN_PARAGRAPH.LEFT
     m = doc.add_paragraph(meta_line)
@@ -444,6 +525,36 @@ def render_docx(*, title: str, markdown: str, sources: list[dict], meta_line: st
             add_inline(p, tokens[i + 1])
             i += 3
             continue
+        elif tok.type == "fence" and parse_figure(tok.info, tok.content) is not None:
+            fg = parse_figure(tok.info, tok.content)
+            fig_no += 1
+            png = next(chart_iter, None)
+            if png:
+                doc.add_picture(io.BytesIO(png), width=Cm(15.5))
+                doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
+            cap = doc.add_paragraph(caption_text(fig_no, fg.get("caption") or "",
+                                                 f"依据来源{fg['sources']}" if fg.get("sources") else None))
+            cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            cap.runs[0].font.size = Pt(9)
+            cap.runs[0].italic = True
+        elif tok.type == "fence" and parse_photo(tok.info, tok.content) is not None:
+            ph = parse_photo(tok.info, tok.content)
+            blob = (images or {}).get(ph["name"])
+            added = False
+            if blob and blob[1] in ("image/jpeg", "image/png"):
+                try:
+                    doc.add_picture(io.BytesIO(blob[0]), width=Cm(13))
+                    doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    added = True
+                except Exception:  # noqa: BLE001 —— 图片损坏或格式不支持：省略该图
+                    log.info("skip broken image %s", ph["name"])
+            if added:
+                fig_no += 1
+                head = f"图{fig_no}｜{ph.get('caption', '')}"
+                cap = doc.add_paragraph(f"{head}{_sep(head)}{ph.get('credit', '')}")
+                cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                cap.runs[0].font.size = Pt(9)
+                cap.runs[0].italic = True
         elif tok.type == "fence" and parse_timeline(tok.info, tok.content) is not None:
             tl = parse_timeline(tok.info, tok.content)
             fig_no += 1
@@ -531,17 +642,26 @@ def _docx_table(doc, header: list[str], rows: list[list[str]]) -> None:
 
 
 # ---------------------------------------------------------------- 一次生成全部格式
-async def build_report_bundle(*, title: str, markdown: str, sources: list[dict], meta_line: str) -> dict[str, bytes]:
-    charts = []
+async def build_report_bundle(*, title: str, markdown: str, sources: list[dict], meta_line: str,
+                              images: dict[str, tuple[bytes, str]] | None = None,
+                              subtitle: str = "") -> dict[str, bytes]:
+    images = images or {}
+    svgs = []  # Word 里需要转成图片的：数据图与结构图，按文中顺序
     for tok in MarkdownIt("commonmark").parse(markdown):
         if tok.type == "fence":
             c = parse_chart(tok.info, tok.content)
+            f = parse_figure(tok.info, tok.content)
             if c is not None:
-                charts.append(c)
-    html = render_html(title=title, markdown=markdown, sources=sources, meta_line=meta_line)
-    out: dict[str, bytes] = {"html": html.encode("utf-8"), "md": _md_with_refs(markdown, sources).encode("utf-8")}
-    pngs = await render_chart_pngs(charts)
-    out["docx"] = render_docx(title=title, markdown=markdown, sources=sources, meta_line=meta_line, chart_pngs=pngs)
+                svgs.append(svg_chart(c, show_title=False))
+            elif f is not None:
+                svgs.append(f["svg"])
+    html = render_html(title=title, markdown=markdown, sources=sources, meta_line=meta_line, images=images,
+                       subtitle=subtitle)
+    out: dict[str, bytes] = {"html": html.encode("utf-8"),
+                             "md": _md_with_refs(markdown, sources, images).encode("utf-8")}
+    pngs = await render_svg_pngs([cover_svg(title, with_text=False, height=300), *svgs])
+    out["docx"] = render_docx(title=title, markdown=markdown, sources=sources, meta_line=meta_line,
+                              chart_pngs=pngs[1:], images=images, cover_png=pngs[0] if pngs else None)
     pdf = await render_pdf(html)
     if pdf:
         out["pdf"] = pdf
@@ -552,7 +672,7 @@ _TL_FENCE = re.compile(r"^```timeline[^\n]*\n(.*?)^```[ \t]*$", re.S | re.M)
 
 
 def _timeline_table(m: re.Match) -> str:
-    t = parse_timeline("timeline", m.group(1))
+    t = parse_timeline("timeline", m.group(m.lastindex or 1))
     if t is None:
         return m.group(0)
     rows = "\n".join(f"| {it.get('date', '')} | {it.get('title', '')}{('：' + it['detail']) if it.get('detail') else ''} | "
@@ -560,8 +680,49 @@ def _timeline_table(m: re.Match) -> str:
     return f"**{t.get('title') or '关键时间节点'}**\n\n| 时间 | 事件 | 来源 |\n|---|---|---|\n{rows}"
 
 
-def _md_with_refs(markdown: str, sources: list[dict]) -> str:
-    markdown = _TL_FENCE.sub(_timeline_table, markdown)  # Markdown 下载：时间轴写成表格，便于阅读
+_ANY_FENCE = re.compile(r"^```(chart|timeline|figure|photo)[^\n]*\n(.*?)^```[ \t]*$", re.S | re.M)
+
+
+def _md_figures(markdown: str, images: dict[str, tuple[bytes, str]]) -> str:
+    """Markdown 下载：图按文中顺序统一编号（与 PDF/Word 一致）；时间轴写成表格，结构图与来源配图写成内嵌图片
+    （data URI），单个文件即可图文并茂地打开；数据图保留 chart 代码块并补上图注。"""
+    counter = {"n": 0}
+
+    def repl(m: re.Match) -> str:
+        info, body = m.group(1), m.group(2)
+        if info == "chart":
+            c = parse_chart(info, body)
+            if c is None:
+                return m.group(0)
+            counter["n"] += 1
+            return m.group(0) + f"\n\n*{caption_text(counter['n'], c.get('title') or '', c.get('source'))}*"
+        if info == "timeline":
+            t = parse_timeline(info, body)
+            if t is None:
+                return m.group(0)
+            counter["n"] += 1
+            return _timeline_table(m) + f"\n\n*{caption_text(counter['n'], t.get('title') or '关键时间节点')}*"
+        if info == "figure":
+            f = parse_figure(info, body)
+            if f is None:
+                return ""
+            counter["n"] += 1
+            uri = _data_uri(f["svg"].encode("utf-8"), "image/svg+xml")
+            cap = caption_text(counter["n"], f.get("caption") or "", f"依据来源{f['sources']}" if f.get("sources") else None)
+            return f"![{f.get('caption', '')}]({uri})\n\n*{cap}*"
+        p = parse_photo(info, body)
+        blob = images.get(p["name"]) if p else None
+        if not blob:
+            return ""
+        counter["n"] += 1
+        head = f"图{counter['n']}｜{p.get('caption', '')}"
+        return f"![{p.get('caption', '')}]({_data_uri(*blob)})\n\n*{head}{_sep(head)}{p.get('credit', '')}*"
+
+    return _ANY_FENCE.sub(repl, markdown)
+
+
+def _md_with_refs(markdown: str, sources: list[dict], images: dict[str, tuple[bytes, str]] | None = None) -> str:
+    markdown = _md_figures(markdown, images or {})
     if not sources:
         return markdown
     lines = ["", "## 参考来源", ""]

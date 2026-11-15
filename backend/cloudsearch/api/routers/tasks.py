@@ -133,6 +133,28 @@ async def browser_sessions(task_id: str, u: CurrentUser = Depends(current_user),
                               handoff_deadline=r.handoff_deadline) for r in rows]
 
 
+@router.get("/{task_id}/figures/{name}")
+async def task_figure(task_id: str, name: str, u: CurrentUser = Depends(current_user),
+                      s: AsyncSession = Depends(get_session)):
+    """报告配图（来源网页里的图片，写报告时已下载到私有存储）。"""
+    import re as _re
+
+    from fastapi import HTTPException, Response
+
+    from ...core.storage import get_storage
+
+    await get_task(s, u, task_id)
+    m = _re.fullmatch(r"photo-\d+-\d+\.(jpg|png|webp)", name)
+    if not m:
+        raise HTTPException(404, "没有这张图")
+    try:
+        data = await get_storage().get(f"figures/{task_id}/{name}")
+    except Exception:  # noqa: BLE001
+        raise HTTPException(404, "没有这张图") from None
+    mime = {"jpg": "image/jpeg", "png": "image/png", "webp": "image/webp"}[m.group(1)]
+    return Response(data, media_type=mime, headers={"Cache-Control": "private, max-age=86400"})
+
+
 @router.get("/{task_id}/trace")
 async def task_trace(task_id: str, u: CurrentUser = Depends(current_user), s: AsyncSession = Depends(get_session)):
     """下载任务执行日志（排查用）：任务与环境信息 + 逐行执行记录；旧任务没有日志文件时由数据库记录生成摘要。"""

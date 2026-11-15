@@ -40,12 +40,49 @@ class TimelineItem(BaseModel):
     source_n: int = Field(description="来源序号")
 
 
+class StageItem(BaseModel):
+    """阶段总览图的一个阶段（发展史/演进类报告）。"""
+
+    period: str = Field(description="年代范围，如 1950年代—1970年代、2017年至今")
+    title: str = Field(description="阶段名称（≤12字），如 符号主义与早期探索")
+    short: str | None = Field(default=None, description="图例用的简称（≤6字），可省略")
+    milestones: list[str] = Field(default_factory=list, description="1-3 个代表性里程碑，“年份 事件”格式，如 1956 达特茅斯研究项目")
+    mainline: str | None = Field(default=None, description="一句话主线（≤30字）")
+    source_ns: list[int] = Field(default_factory=list, description="支撑本阶段里程碑的来源序号")
+
+
+class DiagramLayer(BaseModel):
+    name: str = Field(description="层名，如 基础设施层、统计学习：从样本拟合模型")
+    nodes: list[str] = Field(description="2-4 个节点（每个≤14字）")
+    flow: bool = Field(default=True, description="节点之间是先后流程（箭头）还是并列组成（连线）")
+
+
+class DiagramSpec(BaseModel):
+    """结构示意图：从上到下的若干层，层内若干节点；用于解释机制、结构、演变关系（不是数据图）。"""
+
+    id: str = Field(description="编号，如 d1；正文用 [[diagram:d1]] 放置")
+    title: str = Field(description="图要回答的问题或主题（≤24字），如 大模型时代：产业价值从哪里形成？")
+    layers: list[DiagramLayer] = Field(min_length=2, max_length=5)
+    links: list[str] = Field(default_factory=list, description="层与层之间的说明（与 layers 等长，第一项留空），如 减少完全依赖人工特征")
+    note: str | None = Field(default=None, description="底部的结论或提示（≤40字），可省略")
+    source_ns: list[int] = Field(default_factory=list, description="这张图依据的来源序号")
+
+
+class PhotoRef(BaseModel):
+    """引用来源网页里的图片作为配图（只能用证据中列出的 img:编号）。"""
+
+    image_id: str = Field(description="证据中列出的配图编号，如 8-1（不含“img:”）")
+    caption: str = Field(description="图注：说明图片内容与时间（≤60字），不要夸大")
+
+
 class SectionDraft(BaseModel):
     """报告的一章（分章撰写时使用）。"""
 
     heading: str = Field(description="章标题（不含“一、”这类编号），如“专家系统：1970年代至1980年代末”")
     markdown: str = Field(description="本章正文（不要再写章标题）：用 ### 小标题分 2-4 节，以段落为主，事实句末尾 [n]")
     charts: list[ChartSpec] = Field(default_factory=list, description="可选，本章最多 1 个图表；正文用 [[chart:编号]] 放置")
+    diagram: DiagramSpec | None = Field(default=None, description="可选，本章最多 1 张结构示意图；正文用 [[diagram:编号]] 放置")
+    photo: PhotoRef | None = Field(default=None, description="可选，本章证据里有合适的配图时引用 1 张；正文用 [[photo:编号]] 放置")
 
 
 class ReportDraft(BaseModel):
@@ -57,5 +94,10 @@ class ReportDraft(BaseModel):
     highlights: list[Highlight] = Field(default_factory=list, description="关键数字（≤4个，必须来自证据原文）")
     timeline: list[TimelineItem] = Field(default_factory=list,
                                          description="可选：发展历程/多个时间节点类主题的关键里程碑（≤12条，按时间排序）")
+    stages: list[StageItem] = Field(default_factory=list,
+                                    description="可选：发展史/演进类报告的阶段总览（3-7 个阶段，按时间顺序）")
+    stages_title: str | None = Field(default=None, description="阶段总览图标题，如 AI 行业发展的五个阶段")
+    diagrams: list[DiagramSpec] = Field(default_factory=list, description="可选结构示意图（≤2 张），正文用 [[diagram:编号]] 放置")
+    photos: list[PhotoRef] = Field(default_factory=list, description="可选配图（≤2 张，只能用证据中列出的 img:编号），正文用 [[photo:编号]] 放置")
     limitations: list[str] = Field(default_factory=list, description="局限、缺口与不确定性")
     follow_ups: list[str] = Field(default_factory=list, description="用户接下来可能想问的 3 个问题（具体、可直接发送）")

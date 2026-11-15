@@ -264,6 +264,8 @@ export const api = {
     saveBlob(await res.blob(), m ? decodeURIComponent(m[1]) : '调试日志.zip')
   },
   adminDebugStatus: () => get<AdminDebugStatus>('/admin/debug/status'),
+  /** 报告配图（来源网页图片，需登录访问） */
+  taskFigure: async (taskId: string, name: string) => (await rawFetch(`/tasks/${enc(taskId)}/figures/${enc(name)}`)).blob(),
   downloadArtifact: async (id: string, filename: string) => {
     const res = await rawFetch(`/artifacts/${enc(id)}/download`)
     saveBlob(await res.blob(), filename)
